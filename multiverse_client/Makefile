@@ -77,7 +77,5 @@ clean:
 	$(RM) $(CLIENT_STATIC_LIB)
 	$(RM) $(CLIENT_JSON_SHARED_LIB)
 	$(RM) $(CLIENT_JSON_STATIC_LIB)
-ifeq ($(OS),Windows_NT)
 	$(RM) $(CLIENT_IMPORT_LIB)
 	$(RM) $(CLIENT_JSON_IMPORT_LIB)
-endif
