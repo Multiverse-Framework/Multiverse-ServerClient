@@ -4,11 +4,11 @@ CXX = g++
 
 # Detect OS
 ifeq ($(OS),Windows_NT)
-    CXXFLAGS = -Wall -I.\ -L.\..\lib\windows
+    CXXFLAGS = -std=c++17 -Wall -I.\ -L.\..\lib\windows
     TARGET = C:\Users\giang\Documents\Multiverse-ServerClient\bin\multiverse_server.exe
     RM = cmd /C del /Q $(TARGET)
 else
-    CXXFLAGS = -Wall -I./ -L../lib/linux
+    CXXFLAGS = -std=c++14 -Wall -I./
     TARGET = ../bin/multiverse_server
     RM = rm -f $(TARGET)
 endif
