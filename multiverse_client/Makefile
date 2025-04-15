@@ -26,8 +26,6 @@ else
     RM = rm -f
 endif
 
-LDLIBS = -lzmq -ljsoncpp -lmultiverse_client  # 👈 Link json client with base client
-
 # Sources
 CLIENT_SRC = multiverse_client.cpp
 CLIENT_OBJ = multiverse_client.o
@@ -64,7 +62,7 @@ $(CLIENT_STATIC_LIB): $(CLIENT_SRC)
 # multiverse_client_json shared — depends on multiverse_client shared
 $(CLIENT_JSON_SHARED_LIB): $(CLIENT_JSON_SRC) $(CLIENT_SHARED_LIB)
 	$(CXX) $(CXXFLAGS) -c $< -o $(CLIENT_JSON_OBJ)
-	$(CXX) $(CXXFLAGS) $(LDFLAGS) -Wl,--out-implib,$(CLIENT_JSON_IMPORT_LIB) -o $@ $(CLIENT_JSON_OBJ) $(LDLIBS)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -Wl,--out-implib,$(CLIENT_JSON_IMPORT_LIB) -o $@ $(CLIENT_JSON_OBJ)  -lzmq -ljsoncpp -lmultiverse_client
 
 # multiverse_client_json static — depends on multiverse_client static
 $(CLIENT_JSON_STATIC_LIB): $(CLIENT_JSON_SRC) $(CLIENT_STATIC_LIB)
