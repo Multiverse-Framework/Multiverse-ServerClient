@@ -7,29 +7,33 @@ This repository contains the C++ implementations of both `multiverse_server` and
 ## 🔧 Prerequisites
 
 ### Linux
-- `make`
-- `g++` (typically located at `/usr/bin/g++`)
+
+- `make`, `g++` (typically located at `/usr/bin/`)
 
 ### Windows
-- `make.exe`
-- `g++.exe` (must be available in your system `PATH`)
+
+- `mingw32-make.exe`, `g++.exe` (must be available in `%PATH%`)
 
 ---
 
 ## 🚀 Getting Started
 
 ### On Linux
+
 1. Open a terminal (`Ctrl + Alt + T`)
 2. Run the setup script:
+
    ```bash
    ./setup.sh
    ```
 
 ### On Windows
+
 1. Open a Command Prompt (`Win + R` → type `cmd`)
 2. Run the setup script:
+
    ```cmd
-   setup.bat
+   .\setup.bat
    ```
 
 ---
@@ -50,6 +54,7 @@ To run the `multiverse_server`, simply execute the corresponding binary from the
 ```
 
 On Windows:
+
 ```cmd
-bin\multiverse_server.exe
+.\bin\multiverse_server.exe
 ```

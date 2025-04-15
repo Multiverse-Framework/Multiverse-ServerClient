@@ -1,15 +1,25 @@
 # Makefile for multiverse_server
 
 CXX = g++
-CXXFLAGS = -Wall -I./ -L./../lib/linux
+
+# Detect OS
+ifeq ($(OS),Windows_NT)
+    CXXFLAGS = -Wall -I.\ -L.\..\lib\windows
+    TARGET = C:\Users\giang\Documents\Multiverse-ServerClient\bin\multiverse_server.exe
+    RM = cmd /C del /Q $(TARGET)
+else
+    CXXFLAGS = -Wall -I./ -L../lib/linux
+    TARGET = ../bin/multiverse_server
+    RM = rm -f $(TARGET)
+endif
+
 LDFLAGS = -lzmq -ljsoncpp -pthread
-TARGET = ../bin/multiverse_server
 SRC = main.cpp multiverse_server.cpp
 
 all: $(TARGET)
 
-$(TARGET):
-	$(CXX) $(CXXFLAGS) -o $(TARGET) $(SRC) $(LDFLAGS)
+$(TARGET): $(SRC)
+	$(CXX) $(CXXFLAGS) -o $@ $(SRC) $(LDFLAGS)
 
 clean:
-	rm -f $(TARGET)
+	$(RM)

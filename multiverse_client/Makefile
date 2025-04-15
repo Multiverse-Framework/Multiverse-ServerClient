@@ -1,32 +1,83 @@
-# Makefile for multiverse_client
+# Makefile for multiverse_client and multiverse_client_json
 
 CXX = g++
-CXXFLAGS = -fPIC -std=c++17 -Wall -I./ -L./../lib/linux
 AR = ar
 ARFLAGS = rcs
 
-SRC = multiverse_client.cpp
-OBJ = multiverse_client.o
+ifeq ($(OS),Windows_NT)
+    PLATFORM = windows
+    EXT_SO = .dll
+    EXT_A = .lib
+    EXT_IMP = .dll.a
+    PATH_SEP = \\
+	LIB_DIR = .\..\lib\$(PLATFORM)
+    CXXFLAGS = -std=c++17 -Wall -I.$(PATH_SEP) -L$(LIB_DIR)
+    LDFLAGS = -shared
+    RM = cmd /C del /Q
+else
+    PLATFORM = linux
+    EXT_SO = .so
+    EXT_A = .a
+    EXT_IMP =
+    PATH_SEP = /
+	LIB_DIR = ./../lib/$(PLATFORM)
+    CXXFLAGS = -fPIC -std=c++17 -Wall -I.$(PATH_SEP) -L$(LIB_DIR)
+    LDFLAGS = -shared
+    RM = rm -f
+endif
 
-SHARED_LIB = ../lib/linux/libmultiverse_client.so
-STATIC_LIB = ../lib/linux/libmultiverse_client.a
+LDLIBS = -lzmq -ljsoncpp -lmultiverse_client  # 👈 Link json client with base client
 
-LDLIBS = -lzmq -ljsoncpp
-LDFLAGS = -shared
+# Sources
+CLIENT_SRC = multiverse_client.cpp
+CLIENT_OBJ = multiverse_client.o
 
-all: $(SHARED_LIB) $(STATIC_LIB)
-	@rm -f $(OBJ)
+CLIENT_JSON_SRC = multiverse_client_json.cpp
+CLIENT_JSON_OBJ = multiverse_client_json.o
 
-# Compile and link shared library
-$(SHARED_LIB): $(SRC)
-	$(CXX) $(CXXFLAGS) -c $< -o $(OBJ)
-	$(CXX) $(LDFLAGS) -o $@ $(OBJ) $(LDLIBS)
+# Output file paths
+LIB_DIR = ..$(PATH_SEP)lib$(PATH_SEP)$(PLATFORM)
 
-# Compile and archive static library
-$(STATIC_LIB): $(SRC)
-	$(CXX) $(CXXFLAGS) -c $< -o $(OBJ)
-	$(AR) $(ARFLAGS) $@ $(OBJ)
+CLIENT_SHARED_LIB = $(LIB_DIR)$(PATH_SEP)libmultiverse_client$(EXT_SO)
+CLIENT_STATIC_LIB = $(LIB_DIR)$(PATH_SEP)libmultiverse_client$(EXT_A)
+CLIENT_IMPORT_LIB = $(LIB_DIR)$(PATH_SEP)libmultiverse_client$(EXT_IMP)
 
-# Clean everything
+CLIENT_JSON_SHARED_LIB = $(LIB_DIR)$(PATH_SEP)libmultiverse_client_json$(EXT_SO)
+CLIENT_JSON_STATIC_LIB = $(LIB_DIR)$(PATH_SEP)libmultiverse_client_json$(EXT_A)
+CLIENT_JSON_IMPORT_LIB = $(LIB_DIR)$(PATH_SEP)libmultiverse_client_json$(EXT_IMP)
+
+# Final target
+all: $(CLIENT_SHARED_LIB) $(CLIENT_STATIC_LIB) $(CLIENT_JSON_SHARED_LIB) $(CLIENT_JSON_STATIC_LIB)
+	@$(RM) $(CLIENT_OBJ)
+	@$(RM) $(CLIENT_JSON_OBJ)
+
+# multiverse_client shared
+$(CLIENT_SHARED_LIB): $(CLIENT_SRC)
+	$(CXX) $(CXXFLAGS) -c $< -o $(CLIENT_OBJ)
+	$(CXX) $(LDFLAGS) -Wl,--out-implib,$(CLIENT_IMPORT_LIB) -o $@ $(CLIENT_OBJ) -lzmq -ljsoncpp
+
+# multiverse_client static
+$(CLIENT_STATIC_LIB): $(CLIENT_SRC)
+	$(CXX) $(CXXFLAGS) -c $< -o $(CLIENT_OBJ)
+	$(AR) $(ARFLAGS) $@ $(CLIENT_OBJ)
+
+# multiverse_client_json shared — depends on multiverse_client shared
+$(CLIENT_JSON_SHARED_LIB): $(CLIENT_JSON_SRC) $(CLIENT_SHARED_LIB)
+	$(CXX) $(CXXFLAGS) -c $< -o $(CLIENT_JSON_OBJ)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -Wl,--out-implib,$(CLIENT_JSON_IMPORT_LIB) -o $@ $(CLIENT_JSON_OBJ) $(LDLIBS)
+
+# multiverse_client_json static — depends on multiverse_client static
+$(CLIENT_JSON_STATIC_LIB): $(CLIENT_JSON_SRC) $(CLIENT_STATIC_LIB)
+	$(CXX) $(CXXFLAGS) -c $< -o $(CLIENT_JSON_OBJ)
+	$(AR) $(ARFLAGS) $@ $(CLIENT_JSON_OBJ)
+
+# Clean all outputs
 clean:
-	rm -f $(OBJ) $(SHARED_LIB) $(STATIC_LIB)
+	$(RM) $(CLIENT_SHARED_LIB)
+	$(RM) $(CLIENT_STATIC_LIB)
+	$(RM) $(CLIENT_JSON_SHARED_LIB)
+	$(RM) $(CLIENT_JSON_STATIC_LIB)
+ifeq ($(OS),Windows_NT)
+	$(RM) $(CLIENT_IMPORT_LIB)
+	$(RM) $(CLIENT_JSON_IMPORT_LIB)
+endif

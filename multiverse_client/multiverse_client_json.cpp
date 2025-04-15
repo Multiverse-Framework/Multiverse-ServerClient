@@ -95,7 +95,7 @@ void MultiverseClientJson::compute_request_buffer_sizes(std::map<std::string, si
     {
         for (const std::string &object_name : request_meta_data_json[request_buffer_size.first].getMemberNames())
         {
-            if (object_name.compare("") == 0 || request_buffer_size.second["double"] == -1 || request_buffer_size.second["uint8"] == -1 || request_buffer_size.second["uint16"] == -1)
+            if (object_name.compare("") == 0 || (int)request_buffer_size.second["double"] == -1 || (int)request_buffer_size.second["uint8"] == -1 || (int)request_buffer_size.second["uint16"] == -1)
             {
                 request_buffer_size.second["double"] = -1;
                 request_buffer_size.second["uint8"] = -1;
