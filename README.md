@@ -8,11 +8,21 @@ This repository contains the C++ implementations of both `multiverse_server` and
 
 ### Linux
 
-- `make`, `g++` (typically located at `/usr/bin/`)
+- Build tools: `make`, `g++` (usually found in `/usr/bin/`)
+- Libraries: `libzmqcpp3-dev`, `libjsoncpp-dev`  
+  Install them using:  
+  ```bash
+  sudo apt-get install -y libzmqcpp3-dev libjsoncpp-dev
+  ```
 
 ### Windows
 
-- `mingw32-make.exe`, `g++.exe` (must be available in `%PATH%`)
+- Build tools: `mingw32-make.exe`, `g++.exe` (must be in your `%PATH%`)
+- Libraries: `mingw-w64-x86_64-zeromq`, `mingw-w64-x86_64-cppzmq`, `mingw-w64-x86_64-jsoncpp`  
+  Install them using:
+  ```bash
+  pacman -Sy --noconfirm mingw-w64-x86_64-zeromq mingw-w64-x86_64-cppzmq mingw-w64-x86_64-jsoncpp
+  ```
 
 ---
 
