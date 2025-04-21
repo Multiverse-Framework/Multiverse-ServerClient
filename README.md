@@ -6,6 +6,14 @@ This repository contains the C++ implementations of both `multiverse_server` and
 
 ## 🔧 Prerequisites
 
+### Python Dependency (Linux & Windows)
+
+- pybind11
+  Install via pip:  
+  ```bash
+  pip install pybind11
+  ```
+
 ### Linux
 
 - Build tools: `make`, `g++` (usually found in `/usr/bin/`)
