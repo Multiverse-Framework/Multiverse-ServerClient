@@ -64,7 +64,7 @@ all: $(CLIENT_SHARED_LIB) $(CLIENT_STATIC_LIB) $(CLIENT_JSON_SHARED_LIB) $(CLIEN
 # multiverse_client shared
 $(CLIENT_SHARED_LIB): $(CLIENT_SRC)
 	$(CXX) $(CXXFLAGS) -c $< -o $(CLIENT_OBJ)
-	$(CXX) $(LDFLAGS) -Wl,--out-implib,$(CLIENT_IMPORT_LIB) -o $@ $(CLIENT_OBJ) -lzmq
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -Wl,--out-implib,$(CLIENT_IMPORT_LIB) -o $@ $(CLIENT_OBJ) -l:libzmq.a
 
 # multiverse_client static
 $(CLIENT_STATIC_LIB): $(CLIENT_SRC)
@@ -74,16 +74,16 @@ $(CLIENT_STATIC_LIB): $(CLIENT_SRC)
 # multiverse_client_json shared — depends on multiverse_client shared
 $(CLIENT_JSON_SHARED_LIB): $(CLIENT_JSON_SRC) $(CLIENT_SHARED_LIB)
 	$(CXX) $(CXXFLAGS) -c $< -o $(CLIENT_JSON_OBJ)
-	$(CXX) $(CXXFLAGS) $(LDFLAGS) -Wl,--out-implib,$(CLIENT_JSON_IMPORT_LIB) -o $@ $(CLIENT_JSON_OBJ) $(CLIENT_OBJ) -lzmq -l:libjsoncpp.a
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -Wl,--out-implib,$(CLIENT_JSON_IMPORT_LIB) -o $@ $(CLIENT_JSON_OBJ) $(CLIENT_STATIC_LIB) -l:libjsoncpp.a
 
 # multiverse_client_json static — depends on multiverse_client static
 $(CLIENT_JSON_STATIC_LIB): $(CLIENT_JSON_SRC) $(CLIENT_STATIC_LIB)
 	$(CXX) $(CXXFLAGS) -c $< -o $(CLIENT_JSON_OBJ)
-	$(AR) $(ARFLAGS) $@ $(CLIENT_JSON_OBJ) $(CLIENT_OBJ)
+	$(AR) $(ARFLAGS) $@ $(CLIENT_JSON_OBJ) $(CLIENT_STATIC_LIB)
 
 # multiverse_client_pybind shared — depends on multiverse_client static
 $(PYBIND_LIB): $(PYBIND_SRC) $(CLIENT_STATIC_LIB)
-	$(CXX) $(PYBIND_CXXFLAGS) $< -o $@ $(CLIENT_STATIC_LIB) -lzmq $(PYTHON_LIB)
+	$(CXX) $(PYBIND_CXXFLAGS) $< -o $@ $(CLIENT_STATIC_LIB) -l:libzmq.a $(PYTHON_LIB)
 
 # Clean all outputs
 clean:

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export PATH=/usr/bin:/lib/x86_64-linux-gnu
+export PATH=/usr/bin
 
 echo "Building multiverse_server..."
 (cd multiverse_server; make clean; make)
