@@ -15,15 +15,6 @@ This repository contains the C++ implementations of both `multiverse_server` and
   sudo apt-get install -y libzmqpp-dev libjsoncpp-dev
   ```
 
-### Windows
-
-- Build tools: `mingw32-make.exe`, `g++.exe` (must be in your `%PATH%`)
-- Libraries: `mingw-w64-x86_64-zeromq`, `mingw-w64-x86_64-cppzmq`, `mingw-w64-x86_64-jsoncpp`  
-  Install them using:
-  ```bash
-  pacman -Sy --noconfirm mingw-w64-x86_64-zeromq mingw-w64-x86_64-cppzmq mingw-w64-x86_64-jsoncpp
-  ```
-
 ---
 
 ## 🚀 Getting Started
@@ -31,19 +22,33 @@ This repository contains the C++ implementations of both `multiverse_server` and
 ### On Linux
 
 1. Open a terminal (`Ctrl + Alt + T`)
-2. Run the setup script:
+2. Download this repository:
+   - Option 1: Clone via Git:
+     ```bash
+     git clone https://github.com/Multiverse-Framework/Multiverse-ServerClient
+     ```
+   - Option 2: [Download as ZIP](https://github.com/Multiverse-Framework/Multiverse-ServerClient/archive/refs/heads/main.zip) and extract it.
+
+3. Run the setup script:
 
    ```bash
-   ./setup.sh
+   ./Multiverse-ServerClient/setup.sh
    ```
 
 ### On Windows
 
 1. Open a Command Prompt (`Win + R` → type `cmd`)
-2. Run the setup script:
+2. Download this repository:
+   - Option 1: Clone via Git:
+     ```cmd
+     git clone https://github.com/Multiverse-Framework/Multiverse-ServerClient
+     ```
+   - Option 2: [Download as ZIP](https://github.com/Multiverse-Framework/Multiverse-ServerClient/archive/refs/heads/main.zip) and extract it.
+
+3. Run the setup script:
 
    ```cmd
-   .\setup.bat
+   .\Multiverse-ServerClient\setup.bat
    ```
 
 ---
@@ -60,11 +65,11 @@ This repository contains the C++ implementations of both `multiverse_server` and
 To run the `multiverse_server`, simply execute the corresponding binary from the `bin` directory:
 
 ```bash
-./bin/multiverse_server
+./Multiverse-ServerClient/bin/multiverse_server
 ```
 
 On Windows:
 
 ```cmd
-.\bin\multiverse_server.exe
+.\Multiverse-ServerClient\bin\multiverse_server.exe
 ```
