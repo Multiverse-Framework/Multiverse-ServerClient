@@ -13,6 +13,7 @@ ifeq ($(OS),Windows_NT)
 	EXT_LIB_DIR = .$(PATH_SEP)..$(PATH_SEP)ext$(PATH_SEP)msys2$(PATH_SEP)mingw64$(PATH_SEP)lib
 	PYBIND_EXT = multiverse_client_pybind.cp312-win_amd64.pyd
 	PYTHON_LIB_DIR = $(shell python -c "import sys; from pathlib import Path; print(Path(sys.executable).parent)")
+	PYTHON_LIB = -lpython312
     LDFLAGS = -shared
     RM = cmd /C del /Q
 else
@@ -21,9 +22,10 @@ else
     EXT_A = .a
     EXT_IMP =
     PATH_SEP = /
-	EXT_LIB_DIR = .$(PATH_SEP)..$(PATH_SEP)ext$(PATH_SEP)lib$(PATH_SEP)$(PLATFORM)
-	PYBIND_EXT = multiverse_client_pybind$(shell python-config --extension-suffix)
+	EXT_LIB_DIR = .$(PATH_SEP)..$(PATH_SEP)lib$(PATH_SEP)$(PLATFORM)
+	PYBIND_EXT = multiverse_client_pybind$(shell python3-config --extension-suffix)
 	PYTHON_LIB_DIR = ..$(PATH_SEP)lib$(PATH_SEP)$(PLATFORM)
+	PYTHON_LIB = 
     LDFLAGS = -shared
     RM = rm -f
 endif
@@ -67,7 +69,7 @@ $(CLIENT_SHARED_LIB): $(CLIENT_SRC)
 # multiverse_client static
 $(CLIENT_STATIC_LIB): $(CLIENT_SRC)
 	$(CXX) $(CXXFLAGS) -c $< -o $(CLIENT_OBJ)
-	$(AR) $(ARFLAGS) $@ $(CLIENT_OBJ) -lzmq
+	$(AR) $(ARFLAGS) $@ $(CLIENT_OBJ)
 
 # multiverse_client_json shared — depends on multiverse_client shared
 $(CLIENT_JSON_SHARED_LIB): $(CLIENT_JSON_SRC) $(CLIENT_SHARED_LIB)
@@ -77,11 +79,11 @@ $(CLIENT_JSON_SHARED_LIB): $(CLIENT_JSON_SRC) $(CLIENT_SHARED_LIB)
 # multiverse_client_json static — depends on multiverse_client static
 $(CLIENT_JSON_STATIC_LIB): $(CLIENT_JSON_SRC) $(CLIENT_STATIC_LIB)
 	$(CXX) $(CXXFLAGS) -c $< -o $(CLIENT_JSON_OBJ)
-	$(AR) $(ARFLAGS) $@ $(CLIENT_JSON_OBJ) $(CLIENT_OBJ) -l:libjsoncpp.a
+	$(AR) $(ARFLAGS) $@ $(CLIENT_JSON_OBJ) $(CLIENT_OBJ)
 
 # multiverse_client_pybind shared — depends on multiverse_client static
 $(PYBIND_LIB): $(PYBIND_SRC) $(CLIENT_STATIC_LIB)
-	$(CXX) $(PYBIND_CXXFLAGS) $< -o $@ $(CLIENT_STATIC_LIB) -lzmq -lpython312
+	$(CXX) $(PYBIND_CXXFLAGS) $< -o $@ $(CLIENT_STATIC_LIB) -lzmq $(PYTHON_LIB)
 
 # Clean all outputs
 clean:
