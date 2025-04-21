@@ -25,13 +25,8 @@
 #include <cmath>
 #include <map>
 #include <vector>
-#ifdef __linux__
-#include <jsoncpp/json/json.h>
-#include <jsoncpp/json/reader.h>
-#elif _WIN32
 #include <json/json.h>
 #include <json/reader.h>
-#endif
 
 /**
  * @brief Attributes that can be sent and received between the server and the

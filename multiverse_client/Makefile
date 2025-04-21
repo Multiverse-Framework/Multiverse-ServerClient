@@ -11,7 +11,7 @@ ifeq ($(OS),Windows_NT)
     EXT_IMP = .dll.a
     PATH_SEP = \\
 	LIB_DIR = .\..\lib\$(PLATFORM)
-    CXXFLAGS = -std=c++17 -Wall -I.$(PATH_SEP) -L$(LIB_DIR)
+    CXXFLAGS = -std=c++17 -Wall -I.$(PATH_SEP) -I.$(PATH_SEP)..$(PATH_SEP)ext$(PATH_SEP)include -L$(LIB_DIR)
     LDFLAGS = -shared
     RM = cmd /C del /Q
 else
@@ -21,7 +21,7 @@ else
     EXT_IMP =
     PATH_SEP = /
 	LIB_DIR = ./../lib/$(PLATFORM)
-    CXXFLAGS = -fPIC -std=c++17 -Wall -I.$(PATH_SEP) -L$(LIB_DIR)
+    CXXFLAGS = -fPIC -std=c++17 -Wall -I.$(PATH_SEP) -I.$(PATH_SEP)..$(PATH_SEP)ext$(PATH_SEP)include -L$(LIB_DIR)
     LDFLAGS = -shared
     RM = rm -f
 endif

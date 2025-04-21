@@ -21,11 +21,7 @@
 #pragma once
 
 #include "multiverse_client.h"
-#ifdef __linux__
-#include <jsoncpp/json/json.h>
-#elif _WIN32
 #include <json/json.h>
-#endif
 
 class MultiverseClientJson : public MultiverseClient
 {
