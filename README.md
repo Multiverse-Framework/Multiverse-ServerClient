@@ -19,9 +19,14 @@ This repository contains the C++ implementations of both `multiverse_server` and
 - Build tools: `make`, `g++` (usually found in `/usr/bin/`)
 - Libraries: `libzmqpp-dev`, `libjsoncpp-dev`  
   Install them using:  
-  ```bash
-  sudo apt-get install -y libzmqpp-dev libjsoncpp-dev
-  ```
+  - For **Ubuntu 24.04**:  
+    ```bash
+    sudo apt-get install -y libzmqpp-dev libjsoncpp-dev
+    ```
+  - For **Ubuntu 22.04**:  
+    ```bash
+    sudo apt-get install -y libzmq3-dev libjsoncpp-dev
+    ```
 
 ---
 
