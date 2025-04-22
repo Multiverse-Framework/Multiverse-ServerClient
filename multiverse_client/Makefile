@@ -56,7 +56,7 @@ CLIENT_JSON_STATIC_LIB = $(LIB_DIR)$(PATH_SEP)libmultiverse_client_json$(EXT_A)
 CLIENT_JSON_IMPORT_LIB = $(LIB_DIR)$(PATH_SEP)libmultiverse_client_json$(EXT_IMP)
 
 PYBIND_LIB = $(LIB_DIR)$(PATH_SEP)$(PYBIND_EXT)
-PYBIND_CXXFLAGS = -O3 -Wall -I.$(PATH_SEP) $(shell python -m pybind11 --includes) -std=c++17 -fPIC -fvisibility=hidden
+PYBIND_CXXFLAGS = -O3 -Wall -I.$(PATH_SEP) $(shell python3 -m pybind11 --includes) -std=c++17 -fPIC -fvisibility=hidden
 
 # Final target
 all: $(CLIENT_SHARED_LIB) $(CLIENT_STATIC_LIB) $(CLIENT_JSON_SHARED_LIB) $(CLIENT_JSON_STATIC_LIB) $(PYBIND_LIB)
