@@ -16,7 +16,7 @@ ifeq ($(OS),Windows_NT)
 	PYTHON_VER = $(shell python -c "import sys; print(f'{sys.version_info.major}{sys.version_info.minor}')")
 	PYBIND_EXT = multiverse_client_pybind.cp$(PYTHON_VER)-win_amd64.pyd
 	PYTHON_LIBDIR = $(shell python -c "import sysconfig; print(sysconfig.get_config_var('BINDIR'))")
-	PYTHON_LIB = $(PYTHON_LIBDIR)/python$(PYTHON_VER).dll
+	PYTHON_LIB = $(PYTHON_LIBDIR)$(PATH_SEP)python$(PYTHON_VER).dll
     RM = cmd /C del /Q
 else
     PLATFORM = linux
@@ -32,7 +32,7 @@ else
 	PYTHON_LIBDIR = $(shell python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
 	PYTHON_MULTIARCH = $(shell python3 -c "import sysconfig; print(sysconfig.get_config_var('MULTIARCH'))")
 	PYTHON_LIB_WITH_MULTIARCH = $(shell echo $(PYTHON_LIBDIR) | grep -q $(PYTHON_MULTIARCH) && echo $(PYTHON_LIBDIR) || echo $(PYTHON_LIBDIR)/$(PYTHON_MULTIARCH))
-	PYTHON_LIB = $(PYTHON_LIB_WITH_MULTIARCH)/libpython$(PYTHON_VER).so
+	PYTHON_LIB = $(PYTHON_LIB_WITH_MULTIARCH)$(PATH_SEP)libpython$(PYTHON_VER).so
     RM = rm -f
 endif
 
