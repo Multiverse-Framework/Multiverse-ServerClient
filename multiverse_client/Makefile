@@ -78,7 +78,7 @@ $(CLIENT_SHARED_LIB): $(CLIENT_SRC)
 # multiverse_client static
 $(CLIENT_STATIC_LIB): $(CLIENT_SRC)
 	$(CXX) $(CXXFLAGS) -c $< -o $(CLIENT_OBJ)
-	$(AR) $(ARFLAGS) $@ $(CLIENT_OBJ)
+	$(AR) $(ARFLAGS) $@ $(CLIENT_OBJ) $(EXT_LIB_DIR)$(PATH_SEP)libzmq$(EXT_IMP_STATIC)
 
 # multiverse_client_json shared — depends on multiverse_client shared
 $(CLIENT_JSON_SHARED_LIB): $(CLIENT_JSON_SRC) $(CLIENT_SHARED_LIB)
@@ -92,7 +92,7 @@ $(CLIENT_JSON_STATIC_LIB): $(CLIENT_JSON_SRC) $(CLIENT_STATIC_LIB)
 
 # multiverse_client_pybind shared — depends on multiverse_client static
 $(PYBIND_LIB): $(PYBIND_SRC) $(CLIENT_STATIC_LIB)
-	$(CXX) $(PYBIND_CXXFLAGS) $(LDFLAGS) $< -o $@ $(CLIENT_STATIC_LIB) -l:libzmq$(EXT_IMP_STATIC) $(PYTHON_LIB)
+	$(CXX) $(PYBIND_CXXFLAGS) $(LDFLAGS) $< -o $@ $(CLIENT_STATIC_LIB) $(PYTHON_LIB)
 
 # Clean all outputs
 clean:
