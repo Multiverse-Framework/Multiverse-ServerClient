@@ -28,7 +28,7 @@ else
 	EXT_LIB_DIR = .$(PATH_SEP)..$(PATH_SEP)lib$(PATH_SEP)$(PLATFORM)
 	PYBIND_INCLUDE_DIR = $(shell python3 -m pybind11 --includes)
 	PYTHON_VER = $(shell python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-	PYBIND_EXT = multiverse_client_pybind$(shell python3-config --extension-suffix)
+	PYBIND_EXT = multiverse_client_pybind$(shell python -c "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))")
 	PYTHON_LIBDIR = $(shell python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
 	PYTHON_MULTIARCH = $(shell python3 -c "import sysconfig; print(sysconfig.get_config_var('MULTIARCH'))")
 	PYTHON_LIB_WITH_MULTIARCH = $(shell echo $(PYTHON_LIBDIR) | grep -q $(PYTHON_MULTIARCH) && echo $(PYTHON_LIBDIR) || echo $(PYTHON_LIBDIR)/$(PYTHON_MULTIARCH))
