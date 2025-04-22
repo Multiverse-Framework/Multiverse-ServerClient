@@ -21,11 +21,15 @@ else
     PATH_SEP = /
 	EXT_LIB_DIR = .$(PATH_SEP)..$(PATH_SEP)lib$(PATH_SEP)$(PLATFORM)
 	PYBIND_EXT = multiverse_client_pybind$(shell python3-config --extension-suffix)
+	PYTHON_VER = $(shell python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+	PYTHON_LIBDIR = $(shell python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
+	PYTHON_MULTIARCH = $(shell python3 -c "import sysconfig; print(sysconfig.get_config_var('MULTIARCH'))")
+	PYTHON_LIB_WITH_MULTIARCH = $(shell echo $(PYTHON_LIBDIR) | grep -q $(PYTHON_MULTIARCH) && echo $(PYTHON_LIBDIR) || echo $(PYTHON_LIBDIR)/$(PYTHON_MULTIARCH))
+	PYTHON_LIB = $(PYTHON_LIB_WITH_MULTIARCH)/libpython$(PYTHON_VER).so
     RM = rm -f
 endif
 
 PYBIND_INCLUDE_DIR = $(shell python3 -c "import pybind11; print(pybind11.get_include())")
-PYTHON_LIB = $(shell python3 -c "import sysconfig, os, sys; print(os.path.join(sysconfig.get_config_var('LIBDIR'), sysconfig.get_config_var('MULTIARCH'), f'libpython{sys.version_info.major}.{sys.version_info.minor}.so'))")
 
 CXXFLAGS = -fPIC -std=c++17 -Wall -I.$(PATH_SEP) -I.$(PATH_SEP)..$(PATH_SEP)ext$(PATH_SEP)include
 LDFLAGS = -shared -L$(EXT_LIB_DIR)
