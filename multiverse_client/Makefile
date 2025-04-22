@@ -11,7 +11,11 @@ ifeq ($(OS),Windows_NT)
     EXT_IMP = .dll.a
     PATH_SEP = \\
 	EXT_LIB_DIR = .$(PATH_SEP)..$(PATH_SEP)ext$(PATH_SEP)msys2$(PATH_SEP)mingw64$(PATH_SEP)lib
+	PYBIND_INCLUDE_DIR = $(shell python -m pybind11 --includes)
 	PYBIND_EXT = multiverse_client_pybind.cp312-win_amd64.pyd
+	PYTHON_VER = $(shell python -c "import sys; print(f'{sys.version_info.major}{sys.version_info.minor}')")
+	PYTHON_LIBDIR = $(shell python -c "import sysconfig; print(sysconfig.get_config_var('BINDIR'))")
+	PYTHON_LIB = $(PYTHON_LIBDIR)/python$(PYTHON_VER).dll
     RM = cmd /C del /Q
 else
     PLATFORM = linux
@@ -20,6 +24,7 @@ else
     EXT_IMP =
     PATH_SEP = /
 	EXT_LIB_DIR = .$(PATH_SEP)..$(PATH_SEP)lib$(PATH_SEP)$(PLATFORM)
+	PYBIND_INCLUDE_DIR = $(shell python3 -m pybind11 --includes)
 	PYBIND_EXT = multiverse_client_pybind$(shell python3-config --extension-suffix)
 	PYTHON_VER = $(shell python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
 	PYTHON_LIBDIR = $(shell python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
@@ -28,8 +33,6 @@ else
 	PYTHON_LIB = $(PYTHON_LIB_WITH_MULTIARCH)/libpython$(PYTHON_VER).so
     RM = rm -f
 endif
-
-PYBIND_INCLUDE_DIR = $(shell python3 -c "import pybind11; print(pybind11.get_include())")
 
 CXXFLAGS = -fPIC -std=c++17 -Wall -I.$(PATH_SEP) -I.$(PATH_SEP)..$(PATH_SEP)ext$(PATH_SEP)include
 LDFLAGS = -shared -L$(EXT_LIB_DIR)
@@ -56,7 +59,7 @@ CLIENT_JSON_STATIC_LIB = $(LIB_DIR)$(PATH_SEP)libmultiverse_client_json$(EXT_A)
 CLIENT_JSON_IMPORT_LIB = $(LIB_DIR)$(PATH_SEP)libmultiverse_client_json$(EXT_IMP)
 
 PYBIND_LIB = $(LIB_DIR)$(PATH_SEP)$(PYBIND_EXT)
-PYBIND_CXXFLAGS = -O3 -Wall -I.$(PATH_SEP) $(shell python3 -m pybind11 --includes) -std=c++17 -fPIC -fvisibility=hidden
+PYBIND_CXXFLAGS = -O3 -Wall -I.$(PATH_SEP) $(PYBIND_INCLUDE_DIR) -std=c++17 -fPIC -fvisibility=hidden
 
 # Final target
 all: $(CLIENT_SHARED_LIB) $(CLIENT_STATIC_LIB) $(CLIENT_JSON_SHARED_LIB) $(CLIENT_JSON_STATIC_LIB) $(PYBIND_LIB)
@@ -66,17 +69,17 @@ all: $(CLIENT_SHARED_LIB) $(CLIENT_STATIC_LIB) $(CLIENT_JSON_SHARED_LIB) $(CLIEN
 # multiverse_client shared
 $(CLIENT_SHARED_LIB): $(CLIENT_SRC)
 	$(CXX) $(CXXFLAGS) -c $< -o $(CLIENT_OBJ)
-	$(CXX) $(CXXFLAGS) $(LDFLAGS) -Wl,--out-implib,$(CLIENT_IMPORT_LIB) -o $@ $(CLIENT_OBJ) -l:libzmq.a
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -Wl,--out-implib,$(CLIENT_IMPORT_LIB) -o $@ $(CLIENT_OBJ) -l:libzmq$(EXT_IMP)
 
 # multiverse_client static
 $(CLIENT_STATIC_LIB): $(CLIENT_SRC)
 	$(CXX) $(CXXFLAGS) -c $< -o $(CLIENT_OBJ)
-	$(AR) $(ARFLAGS) $@ $(CLIENT_OBJ)
+	$(AR) $(ARFLAGS) $@ $(CLIENT_OBJ) -l:libzmq$(EXT_IMP)
 
 # multiverse_client_json shared — depends on multiverse_client shared
 $(CLIENT_JSON_SHARED_LIB): $(CLIENT_JSON_SRC) $(CLIENT_SHARED_LIB)
 	$(CXX) $(CXXFLAGS) -c $< -o $(CLIENT_JSON_OBJ)
-	$(CXX) $(CXXFLAGS) $(LDFLAGS) -Wl,--out-implib,$(CLIENT_JSON_IMPORT_LIB) -o $@ $(CLIENT_JSON_OBJ) $(CLIENT_STATIC_LIB) -l:libjsoncpp.a
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -Wl,--out-implib,$(CLIENT_JSON_IMPORT_LIB) -o $@ $(CLIENT_JSON_OBJ) $(CLIENT_IMPORT_LIB) -l:libjsoncpp$(EXT_IMP)
 
 # multiverse_client_json static — depends on multiverse_client static
 $(CLIENT_JSON_STATIC_LIB): $(CLIENT_JSON_SRC) $(CLIENT_STATIC_LIB)
@@ -85,7 +88,7 @@ $(CLIENT_JSON_STATIC_LIB): $(CLIENT_JSON_SRC) $(CLIENT_STATIC_LIB)
 
 # multiverse_client_pybind shared — depends on multiverse_client static
 $(PYBIND_LIB): $(PYBIND_SRC) $(CLIENT_STATIC_LIB)
-	$(CXX) $(PYBIND_CXXFLAGS) $(LDFLAGS) $< -o $@ $(CLIENT_STATIC_LIB) -l:libzmq.a $(PYTHON_LIB)
+	$(CXX) $(PYBIND_CXXFLAGS) $(LDFLAGS) $< -o $@ $(CLIENT_STATIC_LIB) -l:libzmq$(EXT_IMP) $(PYTHON_LIB)
 
 # Clean all outputs
 clean:

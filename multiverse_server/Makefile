@@ -5,7 +5,7 @@ CXX = g++
 # Detect OS
 ifeq ($(OS),Windows_NT)
     CXXFLAGS = -std=c++17 -Wall -I.\ -I.\..\ext\include
-    LDFLAGS = -L.\..ext\msys2\mingw64\lib -l:libzmq.a -l:libjsoncpp.dll.a -pthread
+    LDFLAGS = -L.\..ext\msys2\mingw64\lib -l:libzmq.dll.a -l:libjsoncpp.dll.a -pthread
     TARGET = ..\bin\multiverse_server.exe
     RM = cmd /C del /Q $(TARGET)
 else
