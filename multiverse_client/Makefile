@@ -92,7 +92,7 @@ $(CLIENT_JSON_STATIC_LIB): $(CLIENT_JSON_SRC) $(CLIENT_STATIC_LIB)
 
 # multiverse_client_pybind shared — depends on multiverse_client static
 $(PYBIND_LIB): $(PYBIND_SRC) $(CLIENT_STATIC_LIB)
-	$(CXX) $(PYBIND_CXXFLAGS) $(LDFLAGS) $< -o $@ $(CLIENT_STATIC_LIB) $(PYTHON_LIB)
+	$(CXX) $(PYBIND_CXXFLAGS) $(LDFLAGS) $< -o $@ $(CLIENT_STATIC_LIB) -l:libzmq$(EXT_IMP_STATIC) $(PYTHON_LIB)
 
 # Clean all outputs
 clean:
