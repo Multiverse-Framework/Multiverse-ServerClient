@@ -10,7 +10,7 @@ ifeq ($(OS),Windows_NT)
     RM = cmd /C del /Q $(TARGET)
 else
     CXXFLAGS = -std=c++17 -Wall -I./ -I./../ext/include
-    LDFLAGS = -L./../lib/linux -lzmq -l:libjsoncpp.a -pthread
+    LDFLAGS = -L./../lib/linux -l:libzmq.a -l:libjsoncpp.a -pthread
     TARGET = ../bin/multiverse_server
     RM = rm -f $(TARGET)
 endif
