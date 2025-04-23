@@ -1,14 +1,14 @@
-# Compiler and linker
+# Tools
 CC = cl
+LIBTOOL = lib
 LINK = link
 
 # Output folders
-INCLUDE_DIR = .\..\ext\include
-LIB_DIR = .\..\lib\windows
+LIBDIR = .\..\lib\windows
 
 # Flags
-CFLAGS = /EHsc /c /O2 /MD /I$(INCLUDE_DIR)
-LDFLAGS = /DLL /LIBPATH:$(LIB_DIR)
+CFLAGS = /EHsc /c /O2 /MD /I..\ext\include
+LDFLAGS = /DLL /LIBPATH:$(LIBDIR)
 
 # Source files
 SRCS_CLIENT = multiverse_client.cpp
@@ -18,28 +18,47 @@ SRCS_JSON   = multiverse_client_json.cpp
 OBJS_CLIENT = $(SRCS_CLIENT:.cpp=.obj)
 OBJS_JSON   = $(SRCS_JSON:.cpp=.obj)
 
-# Output names
-LIB_CLIENT = $(LIB_DIR)\multiverse_client.lib
-LIB_JSON   = $(LIB_DIR)\multiverse_client_json.lib
-DLL_CLIENT = $(LIB_DIR)\multiverse_client.dll
-DLL_JSON   = $(LIB_DIR)\multiverse_client_json.dll
+# Static libraries
+STATIC_LIB_CLIENT = $(LIBDIR)\multiverse_client.lib
+STATIC_LIB_JSON   = $(LIBDIR)\multiverse_client_json.lib
 
-# Default rule: build both dynamic libraries
-all: $(DLL_CLIENT) $(DLL_JSON)
+# DLL and import libraries
+DLL_CLIENT = $(LIBDIR)\multiverse_client.dll
+IMPLIB_CLIENT = $(LIBDIR)\multiverse_client.lib
+
+DLL_JSON = $(LIBDIR)\multiverse_client_json.dll
+IMPLIB_JSON = $(LIBDIR)\multiverse_client_json.lib
+
+# Default rule: build both
+all: static shared
 	del /Q *.obj *.exp
 
-# Build multiverse_client.dll and .lib
+# ===== STATIC LIBS =====
+
+static: $(STATIC_LIB_CLIENT) $(STATIC_LIB_JSON)
+
+$(STATIC_LIB_CLIENT): $(OBJS_CLIENT)
+	$(LIBTOOL) /OUT:$@ $**
+
+$(STATIC_LIB_JSON): $(OBJS_JSON)
+	$(LIBTOOL) /OUT:$@ $**
+
+# ===== DYNAMIC LIBS =====
+
+shared: $(DLL_CLIENT) $(DLL_JSON)
+
 $(DLL_CLIENT): $(OBJS_CLIENT)
-	$(LINK) $(LDFLAGS) /OUT:$(DLL_CLIENT) /IMPLIB:$(LIB_CLIENT) $(OBJS_CLIENT) libzmq-mt-4_3_5.lib
+	$(LINK) $(LDFLAGS) /OUT:$@ /IMPLIB:$(IMPLIB_CLIENT) $(OBJS_CLIENT) libzmq-mt-4_3_5.lib
 
-# Build multiverse_client_json.dll and .lib
 $(DLL_JSON): $(OBJS_JSON)
-	$(LINK) $(LDFLAGS) /OUT:$(DLL_JSON) /IMPLIB:$(LIB_JSON) $(OBJS_JSON) libzmq-mt-4_3_5.lib jsoncpp.lib 
+	$(LINK) $(LDFLAGS) /OUT:$@ /IMPLIB:$(IMPLIB_JSON) $(OBJS_JSON) libzmq-mt-4_3_5.lib jsoncpp.lib
 
-# Compile .cpp to .obj
+# ===== COMPILE RULE =====
+
 .cpp.obj:
 	$(CC) $(CFLAGS) $<
 
-# Clean everything
+# ===== CLEAN =====
+
 clean:
 	del /Q *.obj *.lib *.dll *.exp
