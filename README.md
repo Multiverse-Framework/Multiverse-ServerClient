@@ -14,19 +14,21 @@ This repository contains the C++ implementations of both `multiverse_server` and
   pip install pybind11
   ```
 
-### Linux
+### Windows Setup
 
-- Build tools: `make`, `g++` (usually found in `/usr/bin/`)
-- Libraries: `libzmq`
-  Install them using:  
-  - For **Ubuntu 24.04**:  
-    ```bash
-    sudo apt-get install -y libzmqpp-dev
-    ```
-  - For **Ubuntu 22.04**:  
-    ```bash
-    sudo apt-get install -y libzmq3-dev
-    ```
+To build on Windows, ensure the **Microsoft C++ Build Tools** are properly installed:
+
+1. **Install Visual Studio** (Community, Professional, or Enterprise):  
+   👉 [https://visualstudio.microsoft.com/](https://visualstudio.microsoft.com/)
+
+2. During installation, select the **"Desktop development with C++"** workload.
+
+3. This will include the required `vcvarsall.bat` file, typically located at:
+   ```
+   C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat
+   ```
+
+> You’ll need to call `vcvarsall.bat` (or use the “Developer Command Prompt for VS”) when building the project to configure the MSVC environment.
 
 ---
 
