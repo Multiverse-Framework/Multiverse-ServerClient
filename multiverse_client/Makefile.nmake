@@ -1,0 +1,45 @@
+# Compiler and linker
+CC = cl
+LINK = link
+
+# Output folders
+INCLUDE_DIR = .\..\ext\include
+LIB_DIR = .\..\lib\windows
+
+# Flags
+CFLAGS = /EHsc /c /O2 /MD /I$(INCLUDE_DIR)
+LDFLAGS = /DLL /LIBPATH:$(LIB_DIR)
+
+# Source files
+SRCS_CLIENT = multiverse_client.cpp
+SRCS_JSON   = multiverse_client_json.cpp
+
+# Object files
+OBJS_CLIENT = $(SRCS_CLIENT:.cpp=.obj)
+OBJS_JSON   = $(SRCS_JSON:.cpp=.obj)
+
+# Output names
+LIB_CLIENT = $(LIB_DIR)\multiverse_client.lib
+LIB_JSON   = $(LIB_DIR)\multiverse_client_json.lib
+DLL_CLIENT = $(LIB_DIR)\multiverse_client.dll
+DLL_JSON   = $(LIB_DIR)\multiverse_client_json.dll
+
+# Default rule: build both dynamic libraries
+all: $(DLL_CLIENT) $(DLL_JSON)
+	del /Q *.obj *.exp
+
+# Build multiverse_client.dll and .lib
+$(DLL_CLIENT): $(OBJS_CLIENT)
+	$(LINK) $(LDFLAGS) /OUT:$(DLL_CLIENT) /IMPLIB:$(LIB_CLIENT) $(OBJS_CLIENT) libzmq-mt-4_3_5.lib
+
+# Build multiverse_client_json.dll and .lib
+$(DLL_JSON): $(OBJS_JSON)
+	$(LINK) $(LDFLAGS) /OUT:$(DLL_JSON) /IMPLIB:$(LIB_JSON) $(OBJS_JSON) libzmq-mt-4_3_5.lib jsoncpp.lib 
+
+# Compile .cpp to .obj
+.cpp.obj:
+	$(CC) $(CFLAGS) $<
+
+# Clean everything
+clean:
+	del /Q *.obj *.lib *.dll *.exp
