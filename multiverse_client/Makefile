@@ -10,13 +10,13 @@ ifeq ($(OS),Windows_NT)
     EXT_A = .lib
     EXT_IMP = .dll.a
 	EXT_IMP_STATIC = .dll.a
-    PATH_SEP = \\
-	PYBIND_INCLUDE_DIR = $(shell python -m pybind11 --includes)
-	PYTHON_VER = $(shell python -c "import sys; print(f'{sys.version_info.major}{sys.version_info.minor}')")
-	PYBIND_EXT = multiverse_client_pybind$(shell python -c "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))")
-	PYTHON_LIBDIR = $(shell python -c "import sysconfig; print(sysconfig.get_config_var('BINDIR'))")
+    PATH_SEP = /
+	PYBIND_INCLUDE_DIR = $(shell py.exe -m pybind11 --includes)
+	PYTHON_VER = $(shell py.exe -c "import sys; print(f'{sys.version_info.major}{sys.version_info.minor}')")
+	PYBIND_EXT = multiverse_client_pybind$(shell py.exe -c "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))")
+	PYTHON_LIBDIR = $(shell py.exe -c "import sysconfig; print(sysconfig.get_config_var('BINDIR'))")
 	PYTHON_LIB = $(PYTHON_LIBDIR)$(PATH_SEP)python$(PYTHON_VER).dll
-    RM = cmd /C del /Q
+    RM = rm -f
 else
     PLATFORM = linux
     EXT_SO = .so

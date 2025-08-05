@@ -24,14 +24,12 @@ if not exist "%MSYS2_DIR%" (
 
 echo Building multiverse_server...
 cd multiverse_server
-%MINGW32_MAKE_EXE% clean
-%MINGW32_MAKE_EXE%
+powershell -NoProfile -Command "%MSYS2_DIR%\msys2_shell.cmd -defterm -here -no-start -mingw64 -c 'mingw32-make clean && mingw32-make'"
 cd ..
 
 echo Building multiverse_client...
 cd multiverse_client
-%MINGW32_MAKE_EXE% clean -f Makefile.mingw
-%MINGW32_MAKE_EXE% -f Makefile.mingw
+powershell -NoProfile -Command "%MSYS2_DIR%\msys2_shell.cmd -defterm -here -no-start -mingw64 -c 'mingw32-make clean && mingw32-make'"
 
 for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do (
     call "%%i\VC\Auxiliary\Build\vcvarsall.bat" x64
