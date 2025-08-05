@@ -839,7 +839,14 @@ void MultiverseServer::bind_meta_data()
 
     conversion_map_double[EAttribute::CmdJointTorque] = conversion_map_double[EAttribute::Torque];
 
-    conversion_map_double[EAttribute::OdometricVelocity] = conversion_map_double[EAttribute::OdometricVelocity];
+    for (size_t i = 0; i < 3; i++)
+    {
+        conversion_map_double[EAttribute::OdometricVelocity][i] = unit_scale[length_unit] / unit_scale[time_unit];
+    }
+    for (size_t i = 3; i < 6; i++)
+    {
+        conversion_map_double[EAttribute::OdometricVelocity][i] = unit_scale[angle_unit] / unit_scale[time_unit];
+    }
 
     for (std::pair<const EAttribute, std::vector<double>> &conversion_scale : conversion_map_double)
     {
