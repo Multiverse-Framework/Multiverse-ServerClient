@@ -45,18 +45,21 @@ std::map<std::string, std::pair<EAttribute, std::vector<double>>> attribute_map_
         {"scalar", {EAttribute::Scalar, {std::numeric_limits<double>::quiet_NaN()}}},
         {"position", {EAttribute::Position, std::vector<double>(3, std::numeric_limits<double>::quiet_NaN())}},
         {"quaternion", {EAttribute::Quaternion, std::vector<double>(4, std::numeric_limits<double>::quiet_NaN())}},
-        {"relative_velocity", {EAttribute::RelativeVelocity, std::vector<double>(6, 0.0)}},
+        {"linear_velocity", {EAttribute::LinearVelocity, std::vector<double>(3, 0.0)}},
+        {"angular_velocity", {EAttribute::AngularVelocity, std::vector<double>(3, 0.0)}},
+        {"linear_acceleration", {EAttribute::LinearAcceleration, std::vector<double>(3, 0.0)}},
+        {"angular_acceleration", {EAttribute::AngularAcceleration, std::vector<double>(3, 0.0)}},
         {"odometric_velocity", {EAttribute::OdometricVelocity, std::vector<double>(6, 0.0)}},
-        {"joint_rvalue", {EAttribute::JointRvalue, {std::numeric_limits<double>::quiet_NaN()}}},
-        {"joint_tvalue", {EAttribute::JointTvalue, {std::numeric_limits<double>::quiet_NaN()}}},
+        {"joint_linear_position", {EAttribute::JointLinearPosition, {std::numeric_limits<double>::quiet_NaN()}}},
+        {"joint_angular_position", {EAttribute::JointAngularPosition, {std::numeric_limits<double>::quiet_NaN()}}},
         {"joint_linear_velocity", {EAttribute::JointLinearVelocity, {std::numeric_limits<double>::quiet_NaN()}}},
         {"joint_angular_velocity", {EAttribute::JointAngularVelocity, {std::numeric_limits<double>::quiet_NaN()}}},
         {"joint_linear_acceleration", {EAttribute::JointLinearAcceleration, {std::numeric_limits<double>::quiet_NaN()}}},
         {"joint_angular_acceleration", {EAttribute::JointAngularAcceleration, {std::numeric_limits<double>::quiet_NaN()}}},
         {"joint_force", {EAttribute::JointForce, {std::numeric_limits<double>::quiet_NaN()}}},
         {"joint_torque", {EAttribute::JointTorque, {std::numeric_limits<double>::quiet_NaN()}}},
-        {"cmd_joint_rvalue", {EAttribute::CmdJointRvalue, {std::numeric_limits<double>::quiet_NaN()}}},
-        {"cmd_joint_tvalue", {EAttribute::CmdJointTvalue, {std::numeric_limits<double>::quiet_NaN()}}},
+        {"cmd_joint_linear_position", {EAttribute::CmdJointLinearPosition, {std::numeric_limits<double>::quiet_NaN()}}},
+        {"cmd_joint_angular_position", {EAttribute::CmdJointAngularPosition, {std::numeric_limits<double>::quiet_NaN()}}},
         {"cmd_joint_linear_velocity", {EAttribute::CmdJointLinearVelocity, {std::numeric_limits<double>::quiet_NaN()}}},
         {"cmd_joint_angular_velocity", {EAttribute::CmdJointAngularVelocity, {std::numeric_limits<double>::quiet_NaN()}}},
         {"cmd_joint_linear_acceleration", {EAttribute::CmdJointLinearAcceleration, {std::numeric_limits<double>::quiet_NaN()}}},
@@ -109,16 +112,25 @@ std::map<EAttribute, std::map<std::string, std::vector<double>>> handedness_scal
         {EAttribute::Quaternion,
          {{"rhs", {1.0, 1.0, 1.0, 1.0}},
           {"lhs", {-1.0, 1.0, -1.0, 1.0}}}},
-        {EAttribute::RelativeVelocity,
-         {{"rhs", {1.0, 1.0, 1.0, 1.0, 1.0, 1.0}},
-          {"lhs", {1.0, 1.0, 1.0, 1.0, 1.0, 1.0}}}},
+        {EAttribute::LinearVelocity,
+         {{"rhs", {1.0, 1.0, 1.0}},
+          {"lhs", {1.0, 1.0, 1.0}}}},
+        {EAttribute::AngularVelocity,
+         {{"rhs", {1.0, 1.0, 1.0}},
+          {"lhs", {1.0, 1.0, 1.0}}}},
+        {EAttribute::LinearAcceleration,
+         {{"rhs", {1.0, 1.0, 1.0}},
+          {"lhs", {1.0, 1.0, 1.0}}}},
+        {EAttribute::AngularAcceleration,
+         {{"rhs", {1.0, 1.0, 1.0}},
+          {"lhs", {1.0, 1.0, 1.0}}}},
         {EAttribute::OdometricVelocity,
          {{"rhs", {1.0, 1.0, 1.0, 1.0, 1.0, 1.0}},
           {"lhs", {1.0, 1.0, 1.0, 1.0, 1.0, 1.0}}}},
-        {EAttribute::JointRvalue,
+        {EAttribute::JointLinearPosition,
          {{"rhs", {1.0}},
           {"lhs", {-1.0}}}},
-        {EAttribute::JointTvalue,
+        {EAttribute::JointAngularPosition,
          {{"rhs", {1.0}},
           {"lhs", {-1.0}}}},
         {EAttribute::JointLinearVelocity,
@@ -139,10 +151,10 @@ std::map<EAttribute, std::map<std::string, std::vector<double>>> handedness_scal
         {EAttribute::JointTorque,
          {{"rhs", {1.0}},
           {"lhs", {1.0}}}},
-        {EAttribute::CmdJointRvalue,
+        {EAttribute::CmdJointLinearPosition,
          {{"rhs", {1.0}},
           {"lhs", {-1.0}}}},
-        {EAttribute::CmdJointTvalue,
+        {EAttribute::CmdJointAngularPosition,
          {{"rhs", {1.0}},
           {"lhs", {-1.0}}}},
         {EAttribute::CmdJointLinearVelocity,
@@ -747,13 +759,29 @@ void MultiverseServer::bind_meta_data()
                   [](double &quaternion)
                   { quaternion = 1.0; });
 
-    std::for_each(conversion_map_double[EAttribute::JointRvalue].begin(), conversion_map_double[EAttribute::JointRvalue].end(),
-                  [angle_unit](double &joint_rvalue)
-                  { joint_rvalue = unit_scale[angle_unit]; });
+    std::for_each(conversion_map_double[EAttribute::LinearVelocity].begin(), conversion_map_double[EAttribute::LinearVelocity].end(),
+                  [length_unit, time_unit](double &linear_velocity)
+                  { linear_velocity = unit_scale[length_unit] / unit_scale[time_unit]; });
 
-    std::for_each(conversion_map_double[EAttribute::JointTvalue].begin(), conversion_map_double[EAttribute::JointTvalue].end(),
-                  [length_unit](double &joint_tvalue)
-                  { joint_tvalue = unit_scale[length_unit]; });
+    std::for_each(conversion_map_double[EAttribute::AngularVelocity].begin(), conversion_map_double[EAttribute::AngularVelocity].end(),
+                  [angle_unit, time_unit](double &angular_velocity)
+                  { angular_velocity = unit_scale[angle_unit] / unit_scale[time_unit]; });
+
+    std::for_each(conversion_map_double[EAttribute::LinearAcceleration].begin(), conversion_map_double[EAttribute::LinearAcceleration].end(),
+                  [length_unit, time_unit](double &linear_acceleration)
+                  { linear_acceleration = unit_scale[length_unit] / (unit_scale[time_unit] * unit_scale[time_unit]); });
+
+    std::for_each(conversion_map_double[EAttribute::AngularAcceleration].begin(), conversion_map_double[EAttribute::AngularAcceleration].end(),
+                  [angle_unit, time_unit](double &angular_acceleration)
+                  { angular_acceleration = unit_scale[angle_unit] / (unit_scale[time_unit] * unit_scale[time_unit]); });
+
+    std::for_each(conversion_map_double[EAttribute::JointLinearPosition].begin(), conversion_map_double[EAttribute::JointLinearPosition].end(),
+                  [length_unit](double &joint_linear_position)
+                  { joint_linear_position = unit_scale[length_unit]; });
+
+    std::for_each(conversion_map_double[EAttribute::JointAngularPosition].begin(), conversion_map_double[EAttribute::JointAngularPosition].end(),
+                  [angle_unit](double &joint_angular_position)
+                  { joint_angular_position = unit_scale[angle_unit]; });
 
     std::for_each(conversion_map_double[EAttribute::JointLinearVelocity].begin(), conversion_map_double[EAttribute::JointLinearVelocity].end(),
                   [length_unit, time_unit](double &joint_linear_velocity)
@@ -795,18 +823,9 @@ void MultiverseServer::bind_meta_data()
                   [mass_unit, length_unit, time_unit](double &torque)
                   { torque = unit_scale[mass_unit] * unit_scale[length_unit] * unit_scale[length_unit] / (unit_scale[time_unit] * unit_scale[time_unit]); });
 
-    for (size_t i = 0; i < 3; i++)
-    {
-        conversion_map_double[EAttribute::RelativeVelocity][i] = unit_scale[length_unit] / unit_scale[time_unit];
-    }
-    for (size_t i = 3; i < 6; i++)
-    {
-        conversion_map_double[EAttribute::RelativeVelocity][i] = unit_scale[angle_unit] / unit_scale[time_unit];
-    }
+    conversion_map_double[EAttribute::CmdJointAngularPosition] = conversion_map_double[EAttribute::JointAngularPosition];
 
-    conversion_map_double[EAttribute::CmdJointRvalue] = conversion_map_double[EAttribute::JointRvalue];
-
-    conversion_map_double[EAttribute::CmdJointTvalue] = conversion_map_double[EAttribute::JointTvalue];
+    conversion_map_double[EAttribute::CmdJointLinearPosition] = conversion_map_double[EAttribute::JointLinearPosition];
 
     conversion_map_double[EAttribute::CmdJointLinearVelocity] = conversion_map_double[EAttribute::JointLinearVelocity];
 
@@ -820,7 +839,7 @@ void MultiverseServer::bind_meta_data()
 
     conversion_map_double[EAttribute::CmdJointTorque] = conversion_map_double[EAttribute::Torque];
 
-    conversion_map_double[EAttribute::OdometricVelocity] = conversion_map_double[EAttribute::RelativeVelocity];
+    conversion_map_double[EAttribute::OdometricVelocity] = conversion_map_double[EAttribute::OdometricVelocity];
 
     for (std::pair<const EAttribute, std::vector<double>> &conversion_scale : conversion_map_double)
     {
