@@ -117,7 +117,7 @@ std::map<EAttribute, std::map<std::string, std::vector<double>>> handedness_scal
           {"lhs", {1.0, 1.0, 1.0}}}},
         {EAttribute::AngularVelocity,
          {{"rhs", {1.0, 1.0, 1.0}},
-          {"lhs", {1.0, 1.0, 1.0}}}},
+          {"lhs", {1.0, -1.0, 1.0}}}},
         {EAttribute::LinearAcceleration,
          {{"rhs", {1.0, 1.0, 1.0}},
           {"lhs", {1.0, 1.0, 1.0}}}},
@@ -186,7 +186,7 @@ std::map<EAttribute, std::map<std::string, std::vector<double>>> handedness_scal
           {"lhs", {1.0, -1.0, 1.0}}}},
         {EAttribute::Torque,
          {{"rhs", {1.0, 1.0, 1.0}},
-          {"lhs", {1.0, -1.0, 1.0}}}}};
+          {"lhs", {-1.0, 1.0, -1.0}}}}};
 
 enum class EMetaDataState : unsigned char
 {
