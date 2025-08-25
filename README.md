@@ -88,3 +88,41 @@ On Windows:
 ```cmd
 .\Multiverse-ServerClient\bin\multiverse_server.exe
 ```
+
+## Project structure
+
+```bash
+.
+├── bin
+│   └── multiverse_server
+├── ext
+│   └── include
+├── lib
+│   ├── linux
+│   └── windows
+├── LICENSE
+├── multiverse_client
+│   ├── Makefile
+│   ├── multiverse_client.cpp
+│   ├── multiverse_client.h
+│   ├── tcp
+│   │   ├── multiverse_client_tcp.cpp
+│   │   ├── multiverse_client_tcp.h
+│   │   └── multiverse_client_tcp_pybind.cpp
+│   ├── udp
+│   │   ├── multiverse_client_udp.cpp
+│   │   ├── multiverse_client_udp.h
+│   │   └── multiverse_client_udp_pybind.cpp
+│   └── zmq
+│       ├── multiverse_client_zmq.cpp
+│       ├── multiverse_client_zmq.h
+│       └── multiverse_client_zmq_pybind.cpp
+├── multiverse_server
+│   ├── main.cpp
+│   ├── Makefile
+│   ├── multiverse_server.cpp
+│   └── multiverse_server.h
+├── README.md
+├── setup.bat
+└── setup.sh
+```
