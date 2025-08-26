@@ -1,2 +1,4 @@
 .vscode
 ext/msys2
+**.o
+bin/**

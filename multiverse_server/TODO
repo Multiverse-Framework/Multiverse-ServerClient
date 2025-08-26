@@ -1,3 +1,5 @@
 # TODO
 
 ## Implement the server sides.
+[x] Added the transport for TCP, UDP, ZMQ
+[ ] Implement testing for each transport
