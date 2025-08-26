@@ -23,4 +23,4 @@
 
 #include <string>
 
-void start_multiverse_server(const std::string &server_socket_addr);
+int start_multiverse_server(const std::string &server_socket_addr);

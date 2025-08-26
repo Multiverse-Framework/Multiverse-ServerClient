@@ -31,4 +31,15 @@
 int main(int argc, char **argv)
 {
     printf("Start Multiverse Server...\n");
+    std::string server_socket_addr;
+    if (argc > 1)
+    {
+        server_socket_addr = std::string(argv[1]);
+    }
+    else
+    {
+        server_socket_addr = "tcp://*:7000";
+    }
+    start_multiverse_server(server_socket_addr);
+    return 0;
 }
