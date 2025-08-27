@@ -22,5 +22,6 @@
 #pragma once
 
 #include <string>
-
+#include <zmq.hpp>
+#include <cstdio>
 int start_multiverse_server(const std::string &server_socket_addr);

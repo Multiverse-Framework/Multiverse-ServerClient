@@ -21,28 +21,46 @@
 #include "RawUDPServer.h"
 #include <cstdio>
 #include <cstring>
+#include <utility>
+
+#ifdef _WIN32
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
+#else
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <utility>
+#endif
 
 RawUdpServer::RawUdpServer() = default;
 RawUdpServer::~RawUdpServer() { stop(); }
 
 bool RawUdpServer::initialize(int port)
 {
+#ifdef _WIN32
+    WSADATA wsaData;
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+        fprintf(stderr, "UDP ERROR: WSAStartup failed\n");
+        return false;
+    }
+#endif
+
     m_sockfd = ::socket(AF_INET, SOCK_DGRAM, 0);
+#ifdef _WIN32
+    if (m_sockfd == INVALID_SOCKET)
+#else
     if (m_sockfd < 0)
+#endif
     {
         fprintf(stderr, "UDP ERROR: socket()\n");
         return false;
     }
 
     int yes = 1;
-    ::setsockopt(m_sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+    ::setsockopt(m_sockfd, SOL_SOCKET, SO_REUSEADDR, (char*)&yes, sizeof(yes));
 #ifdef SO_REUSEPORT
-    ::setsockopt(m_sockfd, SOL_SOCKET, SO_REUSEPORT, &yes, sizeof(yes));
+    ::setsockopt(m_sockfd, SOL_SOCKET, SO_REUSEPORT, (char*)&yes, sizeof(yes));
 #endif
 
     sockaddr_in serv_addr{};
@@ -69,7 +87,11 @@ void RawUdpServer::run()
     sockaddr_in cli_addr{};
     while (m_running.load())
     {
+#ifdef _WIN32
+        int clilen = sizeof(cli_addr);
+#else
         socklen_t clilen = sizeof(cli_addr);
+#endif
         ssize_t n = ::recvfrom(m_sockfd, buffer, sizeof(buffer), 0,
                                reinterpret_cast<sockaddr *>(&cli_addr), &clilen);
         if (n < 0)
@@ -112,10 +134,20 @@ void RawUdpServer::run()
 void RawUdpServer::stop()
 {
     bool was_running = m_running.exchange(false);
+#ifdef _WIN32
+    if (was_running && m_sockfd != INVALID_SOCKET)
+    {
+        ::shutdown(m_sockfd, SD_BOTH);
+        ::closesocket(m_sockfd);
+        m_sockfd = INVALID_SOCKET;
+        WSACleanup();
+    }
+#else
     if (was_running && m_sockfd != -1)
     {
         ::shutdown(m_sockfd, SHUT_RDWR);
         ::close(m_sockfd);
         m_sockfd = -1;
     }
+#endif
 }

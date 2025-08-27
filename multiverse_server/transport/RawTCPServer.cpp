@@ -20,14 +20,20 @@
 
 #include "RawTCPServer.h"
 #include <thread>
+#include <cstdio>
+#include <utility>
+#include <cstring>
+
+#ifdef _WIN32
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
+#else
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netinet/tcp.h>
-#include <cstdio>
-#include <utility>
-#include <cstring>
+#endif
 
 namespace
 {
@@ -51,17 +57,29 @@ RawTcpServer::~RawTcpServer() { stop(); }
 
 bool RawTcpServer::initialize(int port)
 {
+#ifdef _WIN32
+    WSADATA wsaData;
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+        fprintf(stderr, "TCP ERROR: WSAStartup failed\n");
+        return false;
+    }
+#endif
+
     m_sockfd = ::socket(AF_INET, SOCK_STREAM, 0);
+#ifdef _WIN32
+    if (m_sockfd == INVALID_SOCKET)
+#else
     if (m_sockfd < 0)
+#endif
     {
         fprintf(stderr, "TCP ERROR: socket()\n");
         return false;
     }
 
     int yes = 1;
-    ::setsockopt(m_sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+    ::setsockopt(m_sockfd, SOL_SOCKET, SO_REUSEADDR, (char*)&yes, sizeof(yes));
 #ifdef SO_REUSEPORT
-    ::setsockopt(m_sockfd, SOL_SOCKET, SO_REUSEPORT, &yes, sizeof(yes));
+    ::setsockopt(m_sockfd, SOL_SOCKET, SO_REUSEPORT, (char*)&yes, sizeof(yes));
 #endif
 
     sockaddr_in serv_addr{};
@@ -92,10 +110,18 @@ void RawTcpServer::run()
     while (m_running.load())
     {
         sockaddr_in cli_addr{};
+#ifdef _WIN32
+        int clilen = sizeof(cli_addr);
+#else
         socklen_t clilen = sizeof(cli_addr);
+#endif
         printf("TCP: waiting for connection...\n");
-        int cfd = ::accept(m_sockfd, reinterpret_cast<sockaddr *>(&cli_addr), &clilen);
+        auto cfd = ::accept(m_sockfd, reinterpret_cast<sockaddr *>(&cli_addr), &clilen);
+#ifdef _WIN32
+        if (cfd == INVALID_SOCKET)
+#else
         if (cfd < 0)
+#endif
         {
             if (!m_running.load())
                 break;
@@ -106,13 +132,18 @@ void RawTcpServer::run()
         std::thread([this, cfd]()
                     {
                         int yes = 1;
-                        ::setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
+                        ::setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, (char*)&yes, sizeof(yes));
                         char buffer[4096];
                         while (true) {
                             ssize_t n = ::recv(cfd, buffer, sizeof(buffer), 0);
                             if (n <= 0) break;
                             if (m_callback_ex) {
-                                sockaddr_in peer{}; socklen_t plen = sizeof(peer);
+                                sockaddr_in peer{};
+#ifdef _WIN32
+                                int plen = sizeof(peer);
+#else
+                                socklen_t plen = sizeof(peer);
+#endif
                                 ::getpeername(cfd, reinterpret_cast<sockaddr*>(&peer), &plen);
                                 try { m_callback_ex(buffer, static_cast<int>(n), peer); }
                                 catch (...) { fprintf(stderr, "TCP callback_ex threw\n"); }
@@ -121,10 +152,14 @@ void RawTcpServer::run()
                                 catch (...) { fprintf(stderr, "TCP callback threw\n"); }
                             }
                             const char* resp = "TCP Server received your message";
-                            if (!send_all(cfd, resp, std::strlen(resp))) break;
+                            if (!send_all(cfd, resp, strlen(resp))) break;
                         }
+#ifdef _WIN32
+                        ::closesocket(cfd);
+#else
                         ::close(cfd);
-                        printf("TCP: client closed.\n"); 
+#endif
+                        printf("TCP: client closed.\n");
                     }).detach();
     }
 }
@@ -132,10 +167,20 @@ void RawTcpServer::run()
 void RawTcpServer::stop()
 {
     bool was_running = m_running.exchange(false);
+#ifdef _WIN32
+    if (was_running && m_sockfd != INVALID_SOCKET)
+    {
+        ::shutdown(m_sockfd, SD_BOTH);
+        ::closesocket(m_sockfd);
+        m_sockfd = INVALID_SOCKET;
+        WSACleanup();
+    }
+#else
     if (was_running && m_sockfd != -1)
     {
         ::shutdown(m_sockfd, SHUT_RDWR);
         ::close(m_sockfd);
         m_sockfd = -1;
     }
+#endif
 }

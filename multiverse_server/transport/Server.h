@@ -26,7 +26,13 @@
 #include <zmq.h>
 #include <memory>
 #include <utility>
+
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <arpa/inet.h>
+#endif
 
 inline int parse_port(std::string_view ep)
 {
@@ -39,7 +45,7 @@ inline int parse_port(std::string_view ep)
 inline std::string to_addr_string(const sockaddr_in &addr)
 {
     char ip_str[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &(addr.sin_addr), ip_str, INET_ADDRSTRLEN);
+    inet_ntop(AF_INET, (void*)&(addr.sin_addr), ip_str, INET_ADDRSTRLEN);
     return std::string(ip_str) + ":" + std::to_string(ntohs(addr.sin_port));
 }
 
@@ -67,7 +73,7 @@ public:
                                     p.meta.remote = to_addr_string(peer);
                                     p.data.assign(reinterpret_cast<const uint8_t*>(d),
                                                   reinterpret_cast<const uint8_t*>(d) + n);
-                                    cb_(p); 
+                                    cb_(p);
                                  });
         srv_->run();
     }
@@ -101,7 +107,7 @@ public:
                                     p.meta.remote = to_addr_string(from);
                                     p.data.assign(reinterpret_cast<const uint8_t*>(d),
                                                   reinterpret_cast<const uint8_t*>(d) + n);
-                                    cb_(p); 
+                                    cb_(p);
                                  });
         srv_->run();
     }
@@ -134,7 +140,7 @@ public:
                                     p.meta.remote = "zmq:" + ep_;
                                     p.data.assign(static_cast<const uint8_t*>(d),
                                                   static_cast<const uint8_t*>(d) + n);
-                                    cb_(p); 
+                                    cb_(p);
                                   });
         srv_->run();
     }

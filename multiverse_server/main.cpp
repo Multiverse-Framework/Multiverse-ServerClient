@@ -41,5 +41,8 @@ int main(int argc, char **argv)
         server_socket_addr = "tcp://*:7000";
     }
     start_multiverse_server(server_socket_addr);
+    while(true) {
+        zmq_sleep(1);
+    }
     return 0;
 }

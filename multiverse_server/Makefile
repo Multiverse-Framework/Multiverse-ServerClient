@@ -4,12 +4,13 @@ CXX = g++
 
 # Detect OS
 ifeq ($(OS),Windows_NT)
-    CXXFLAGS = -std=c++17 -Wall -I./ -I./../ext/include
-    LDFLAGS = -L./../lib/windows -l:libzmq.dll.a -l:libjsoncpp.dll.a -pthread
+    CXXFLAGS = -std=c++17 -Wall -g -I./ -I./../ext/include
+    LDFLAGS = -L./../lib/windows -l:libzmq.dll.a -l:libjsoncpp.dll.a -pthread -lws2_32
+    LDFLAGS += -Wl,-Bstatic -static-libgcc -static-libstdc++ -lwinpthread -Wl,-Bdynamic
     TARGET = ..\bin\multiverse_server.exe
     RM = rm -f $(TARGET)
 else
-    CXXFLAGS = -std=c++17 -Wall -I./ -I./../ext/include
+    CXXFLAGS = -std=c++17 -Wall -g -I./ -I./../ext/include
     LDFLAGS = -L./../lib/linux -l:libzmq.a -l:libjsoncpp.a -pthread
     TARGET = ../bin/multiverse_server
     RM = rm -f $(TARGET)

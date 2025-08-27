@@ -21,7 +21,12 @@
 #pragma once
 #include <functional>
 #include <atomic>
+
+#ifdef _WIN32
+#include <winsock2.h>
+#else
 #include <netinet/in.h>
+#endif
 
 class RawUdpServer
 {
@@ -39,7 +44,11 @@ public:
     void stop();
 
 private:
+#ifdef _WIN32
+    SOCKET m_sockfd{INVALID_SOCKET};
+#else
     int m_sockfd{-1};
+#endif
     UdpCallback m_callback;
     UdpCallbackEx m_callback_ex;
     std::atomic<bool> m_running{false};
