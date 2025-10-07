@@ -26,8 +26,17 @@
 #include <mutex>
 #include <thread>
 #include <zmq_addon.hpp>
+#include <transport.hpp>
+#include <atomic>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <arpa/inet.h>
+#include <unistd.h>
 
 #include "multiverse_server.h"
+#include <log_utils.hpp>
 
 #define STRING_SIZE 2000
 
@@ -288,13 +297,84 @@ static Json::Value sort_meta_data_json(const Json::Value &original)
     return sorted;
 }
 
-MultiverseServer::MultiverseServer(const std::string &in_socket_addr)
+MultiverseServer::MultiverseServer(const std::string &zmq_endpoint)
+    : protocol_(TransportType::Zmq)
 {
-    socket = zmq::socket_t(server_context, zmq::socket_type::rep);
-    socket_addr = in_socket_addr;
-    socket.bind(socket_addr);
+    socket_addr = zmq_endpoint;
+
+    auto zmq_transport = std::make_unique<ZmqTransport>(ZMQ_REP);
+    try
+    {
+        zmq_transport->bind(socket_addr);
+    }
+    catch (const zmq::error_t &e)
+    {
+        throw std::runtime_error(
+            std::string("[Server] ZMQ bind failed on ") + socket_addr + ": " + e.what());
+    }
+    transport_ = std::move(zmq_transport);
     sockets_need_clean_up[socket_addr] = false;
-    printf("[Server] Bind to socket %s.\n", socket_addr.c_str());
+    std::printf("[Server] Bind to socket %s.\n", socket_addr.c_str());
+}
+
+MultiverseServer::MultiverseServer(const std::string &host, const std::string &port, TransportType t)
+    : protocol_(TransportType::Tcp)
+{
+    (void)t;
+    tcp_host = host;
+    tcp_port = port;
+    socket_addr = "rawtcp://" + host + ":" + port;
+    printf("[Server] (TCP) Listen on %s:%s.\n", host.c_str(), port.c_str());
+    auto tcp_transport = std::make_unique<TcpTransport>();
+    tcp_transport->set_dump(true);
+    tcp_transport->listen(host + ":" + port);
+    if (!tcp_transport->accept()) {
+        throw std::runtime_error("[Server] Failed to accept raw TCP connection on " + host + ":" + port);
+    }
+    transport_ = std::move(tcp_transport);
+    sockets_need_clean_up[socket_addr] = false;
+}
+
+bool MultiverseServer::recv_message(int &message_spec_int, std::vector<std::vector<uint8_t>> &payloads)
+{
+    payloads.clear();
+
+    std::vector<std::string> frames;
+    sockets_need_clean_up[socket_addr] = false;
+    if (!transport_->recv_multipart(frames))
+    {
+        mv_log("[SERVER] recv_multipart failed or peer closed");
+        return false;
+    }
+    sockets_need_clean_up[socket_addr] = true;
+    if (frames.empty())
+    {
+        mv_log("[SERVER] empty message");
+        return false;
+    }
+
+    if (frames[0].size() != sizeof(int))
+    {
+        mv_log("[SERVER] bad spec frame size=%zu", frames[0].size());
+        return false;
+    }
+    std::memcpy(&message_spec_int, frames[0].data(), sizeof(int));
+    mv_log("[SERVER] spec=%d, total frames=%zu", message_spec_int, frames.size());
+
+    payloads.clear();
+    for (size_t i = 1; i < frames.size(); ++i)
+    {
+        payloads.emplace_back(frames[i].begin(), frames[i].end());
+    }
+
+    mv_dump_payloads(payloads);
+    return true;
+}
+
+bool MultiverseServer::send_message(const void *data, size_t len, bool more)
+{
+    transport_->send(data, len, more);
+    return true;
 }
 
 MultiverseServer::~MultiverseServer()
@@ -354,14 +434,13 @@ void MultiverseServer::start()
 
         case EMultiverseServerState::BindObjects:
         {
-            // printf("[Server] Received meta data at socket %s:\n%s", socket_addr.c_str(), request_meta_data_json.toStyledString().c_str());
+            printf("[Server] Received meta data at socket %s:\n%s", socket_addr.c_str(), request_meta_data_json.toStyledString().c_str());
             bind_meta_data();
 
             mtx.lock();
             bind_send_objects();
             validate_meta_data();
             mtx.unlock();
-
             wait_for_objects();
 
             if (should_shut_down)
@@ -489,7 +568,7 @@ void MultiverseServer::start()
         printf("[Server] Unbind socket %s.\n", socket_addr.c_str());
         try
         {
-            socket.unbind(socket_addr);
+            transport_->unbind(socket_addr);
         }
         catch (const zmq::error_t &e)
         {
@@ -502,118 +581,105 @@ EMultiverseServerState MultiverseServer::receive_data()
 {
     try
     {
-        std::vector<zmq::message_t> request_array;
-        sockets_need_clean_up[socket_addr] = false;
-        zmq::recv_result_t recv_result_t = zmq::recv_multipart(socket, std::back_inserter(request_array), zmq::recv_flags::none);
-        assert(recv_result_t.has_value());
-        sockets_need_clean_up[socket_addr] = true;
-
-        const size_t request_array_size = request_array.size();
-        if (request_array_size == 0)
+        int message_spec_int = -1;
+        std::vector<std::vector<uint8_t>> payloads;
+        if (!recv_message(message_spec_int, payloads))
         {
-            throw std::invalid_argument("[Server] Received empty message at socket " + socket_addr + ".");
+            throw zmq::error_t(); // reuse original error handling path
         }
-        else
+
+        if (message_spec_int == 0 && payloads.size() == 0)
         {
-            int message_spec_int;
-            memcpy(&message_spec_int, request_array[0].data(), sizeof(int));
-            if (message_spec_int == 0 && request_array_size == 1)
+            printf("[Server] Received close signal at socket %s.", socket_addr.c_str());
+            send_response_meta_data();
+            worlds[world_name].simulations[simulation_name].meta_data_state = EMetaDataState::Normal;
+            return EMultiverseServerState::ReceiveRequestMetaData;
+        }
+        else if (message_spec_int == 1 && payloads.size() == 1)
+        {
+            std::string json_str(reinterpret_cast<const char *>(payloads[0].data()), payloads[0].size());
+            if (reader.parse(json_str, request_meta_data_json) && !request_meta_data_json.empty())
             {
-                printf("[Server] Received close signal at socket %s.\n", socket_addr.c_str());
-                send_response_meta_data();
-                worlds[world_name].simulations[simulation_name].meta_data_state = EMetaDataState::Normal;
-                return EMultiverseServerState::ReceiveRequestMetaData;
-            }
-            else if (message_spec_int == 1 && request_array_size == 2)
-            {
-                if (reader.parse(request_array[1].to_string(), request_meta_data_json) && !request_meta_data_json.empty())
-                {
-                    request_meta_data_json = sort_meta_data_json(request_meta_data_json);
-                    send_buffer.buffer_double.data_vec.clear();
-                    send_buffer.buffer_uint8_t.data_vec.clear();
-                    send_buffer.buffer_uint16_t.data_vec.clear();
-                    receive_buffer.buffer_double.data_vec.clear();
-                    receive_buffer.buffer_uint8_t.data_vec.clear();
-                    receive_buffer.buffer_uint16_t.data_vec.clear();
-                    return EMultiverseServerState::BindObjects;
-                }
-                else
-                {
-                    throw std::invalid_argument("[Server] Received invalid message [" + request_array[1].to_string() + "] at socket " + socket_addr + ".");
-                }
-            }
-            else if ((message_spec_int == 2 && request_array_size == 2) ||
-                     (message_spec_int == 3 && request_array_size == 3) ||
-                     (message_spec_int == 4 && request_array_size == 4) ||
-                     (message_spec_int == 5 && request_array_size == 5))
-            {
-                memcpy(&worlds[world_name].time, request_array[1].data(), sizeof(double));
-
-                if (worlds[world_name].time < 0.0)
-                {
-                    throw std::invalid_argument("[Server] Received invalid message [time = " + std::to_string(worlds[world_name].time) + "] at socket " + socket_addr + ".");
-                }
-
-                if (message_spec_int == 3 && request_array_size == 3)
-                {
-                    if (send_buffer.buffer_double.size > 0 && send_buffer.buffer_uint8_t.size == 0 && send_buffer.buffer_uint16_t.size == 0)
-                    {
-                        memcpy(send_buffer.buffer_double.data, request_array[2].data(), send_buffer.buffer_double.size * sizeof(double));
-                    }
-                    else if (send_buffer.buffer_double.size == 0 && send_buffer.buffer_uint8_t.size > 0 && send_buffer.buffer_uint16_t.size == 0)
-                    {
-                        memcpy(send_buffer.buffer_uint8_t.data, request_array[2].data(), send_buffer.buffer_uint8_t.size * sizeof(uint8_t));
-                    }
-                    else if (send_buffer.buffer_double.size == 0 && send_buffer.buffer_uint8_t.size == 0 && send_buffer.buffer_uint16_t.size > 0)
-                    {
-                        memcpy(send_buffer.buffer_uint16_t.data, request_array[2].data(), send_buffer.buffer_uint16_t.size * sizeof(uint16_t));
-                    }
-                    else
-                    {
-                        throw std::invalid_argument("[Server] Received invalid message [message_spec_int = " + std::to_string(message_spec_int) + ", request_array_size = " + std::to_string(request_array_size) + "] at socket " + socket_addr + ".");
-                    }
-                }
-                else if (message_spec_int == 4 && request_array_size == 4)
-                {
-                    if (send_buffer.buffer_double.size > 0 && send_buffer.buffer_uint8_t.size > 0 && send_buffer.buffer_uint16_t.size == 0)
-                    {
-                        memcpy(send_buffer.buffer_double.data, request_array[2].data(), send_buffer.buffer_double.size * sizeof(double));
-                        memcpy(send_buffer.buffer_uint8_t.data, request_array[3].data(), send_buffer.buffer_uint8_t.size * sizeof(uint8_t));
-                    }
-                    else if (send_buffer.buffer_double.size > 0 && send_buffer.buffer_uint8_t.size == 0 && send_buffer.buffer_uint16_t.size > 0)
-                    {
-                        memcpy(send_buffer.buffer_double.data, request_array[2].data(), send_buffer.buffer_double.size * sizeof(double));
-                        memcpy(send_buffer.buffer_uint16_t.data, request_array[3].data(), send_buffer.buffer_uint16_t.size * sizeof(uint16_t));
-                    }
-                    else if (send_buffer.buffer_double.size == 0 && send_buffer.buffer_uint8_t.size > 0 && send_buffer.buffer_uint16_t.size > 0)
-                    {
-                        memcpy(send_buffer.buffer_uint8_t.data, request_array[2].data(), send_buffer.buffer_uint8_t.size * sizeof(uint8_t));
-                        memcpy(send_buffer.buffer_uint16_t.data, request_array[3].data(), send_buffer.buffer_uint16_t.size * sizeof(uint16_t));
-                    }
-                    else
-                    {
-                        throw std::invalid_argument("[Server] Received invalid message [message_spec_int = " + std::to_string(message_spec_int) + ", request_array_size = " + std::to_string(request_array_size) + "] at socket " + socket_addr + ".");
-                    }
-                }
-                else if (message_spec_int == 5 && request_array_size == 5)
-                {
-                    if (send_buffer.buffer_double.size > 0 && send_buffer.buffer_uint8_t.size > 0 && send_buffer.buffer_uint16_t.size > 0)
-                    {
-                        memcpy(send_buffer.buffer_double.data, request_array[2].data(), send_buffer.buffer_double.size * sizeof(double));
-                        memcpy(send_buffer.buffer_uint8_t.data, request_array[3].data(), send_buffer.buffer_uint8_t.size * sizeof(uint8_t));
-                        memcpy(send_buffer.buffer_uint16_t.data, request_array[4].data(), send_buffer.buffer_uint16_t.size * sizeof(uint16_t));
-                    }
-                    else
-                    {
-                        throw std::invalid_argument("[Server] Received invalid message [message_spec_int = " + std::to_string(message_spec_int) + ", request_array_size = " + std::to_string(request_array_size) + "] at socket " + socket_addr + ".");
-                    }
-                }
-                return EMultiverseServerState::BindSendData;
+                request_meta_data_json = sort_meta_data_json(request_meta_data_json);
+                send_buffer.buffer_double.data_vec.clear();
+                send_buffer.buffer_uint8_t.data_vec.clear();
+                send_buffer.buffer_uint16_t.data_vec.clear();
+                receive_buffer.buffer_double.data_vec.clear();
+                receive_buffer.buffer_uint8_t.data_vec.clear();
+                receive_buffer.buffer_uint16_t.data_vec.clear();
+                return EMultiverseServerState::BindObjects;
             }
             else
             {
-                throw std::invalid_argument("[Server] Received invalid message [message_spec_int = " + std::to_string(message_spec_int) + ", request_array_size = " + std::to_string(request_array_size) + "] at socket " + socket_addr + ".");
+                throw std::invalid_argument("[Server] Received invalid message [" + json_str + "] at socket " + socket_addr + ".");
             }
+        }
+        else if (message_spec_int >= 2)
+        {
+            if (payloads.empty() || payloads[0].size() != sizeof(double))
+            {
+                throw std::invalid_argument("[Server] Received invalid time payload at socket " + socket_addr + ".");
+            }
+            std::memcpy(&worlds[world_name].time, payloads[0].data(), sizeof(double));
+
+            if (worlds[world_name].time < 0.0)
+            {
+                throw std::invalid_argument("[Server] Received invalid message [time = " + std::to_string(worlds[world_name].time) + "] at socket " + socket_addr + ".");
+            }
+
+            size_t idx = 1;
+            if (message_spec_int == 3 && payloads.size() == 2)
+            {
+                if (send_buffer.buffer_double.size > 0 && send_buffer.buffer_uint8_t.size == 0 && send_buffer.buffer_uint16_t.size == 0)
+                {
+                    std::memcpy(send_buffer.buffer_double.data, payloads[idx].data(), send_buffer.buffer_double.size * sizeof(double));
+                }
+                else if (send_buffer.buffer_double.size == 0 && send_buffer.buffer_uint8_t.size > 0 && send_buffer.buffer_uint16_t.size == 0)
+                {
+                    std::memcpy(send_buffer.buffer_uint8_t.data, payloads[idx].data(), send_buffer.buffer_uint8_t.size * sizeof(uint8_t));
+                }
+                else if (send_buffer.buffer_double.size == 0 && send_buffer.buffer_uint8_t.size == 0 && send_buffer.buffer_uint16_t.size > 0)
+                {
+                    std::memcpy(send_buffer.buffer_uint16_t.data, payloads[idx].data(), send_buffer.buffer_uint16_t.size * sizeof(uint16_t));
+                }
+                else
+                {
+                    throw std::invalid_argument("[Server] Received invalid message [message_spec_int = " + std::to_string(message_spec_int) + "] at socket " + socket_addr + ".");
+                }
+            }
+            else if (message_spec_int == 4 && payloads.size() == 3)
+            {
+                if (send_buffer.buffer_double.size > 0 && send_buffer.buffer_uint8_t.size > 0 && send_buffer.buffer_uint16_t.size == 0)
+                {
+                    std::memcpy(send_buffer.buffer_double.data, payloads[idx + 0].data(), send_buffer.buffer_double.size * sizeof(double));
+                    std::memcpy(send_buffer.buffer_uint8_t.data, payloads[idx + 1].data(), send_buffer.buffer_uint8_t.size * sizeof(uint8_t));
+                }
+                else if (send_buffer.buffer_double.size > 0 && send_buffer.buffer_uint8_t.size == 0 && send_buffer.buffer_uint16_t.size > 0)
+                {
+                    std::memcpy(send_buffer.buffer_double.data, payloads[idx + 0].data(), send_buffer.buffer_double.size * sizeof(double));
+                    std::memcpy(send_buffer.buffer_uint16_t.data, payloads[idx + 1].data(), send_buffer.buffer_uint16_t.size * sizeof(uint16_t));
+                }
+                else if (send_buffer.buffer_double.size == 0 && send_buffer.buffer_uint8_t.size > 0 && send_buffer.buffer_uint16_t.size > 0)
+                {
+                    std::memcpy(send_buffer.buffer_uint8_t.data, payloads[idx + 0].data(), send_buffer.buffer_uint8_t.size * sizeof(uint8_t));
+                    std::memcpy(send_buffer.buffer_uint16_t.data, payloads[idx + 1].data(), send_buffer.buffer_uint16_t.size * sizeof(uint16_t));
+                }
+                else
+                {
+                    throw std::invalid_argument("[Server] Received invalid message [message_spec_int = " + std::to_string(message_spec_int) + "] at socket " + socket_addr + ".");
+                }
+            }
+            else if (message_spec_int == 5 && payloads.size() == 4)
+            {
+                std::memcpy(send_buffer.buffer_double.data, payloads[idx + 0].data(), send_buffer.buffer_double.size * sizeof(double));
+                std::memcpy(send_buffer.buffer_uint8_t.data, payloads[idx + 1].data(), send_buffer.buffer_uint8_t.size * sizeof(uint8_t));
+                std::memcpy(send_buffer.buffer_uint16_t.data, payloads[idx + 2].data(), send_buffer.buffer_uint16_t.size * sizeof(uint16_t));
+            }
+            return EMultiverseServerState::BindSendData;
+        }
+        else
+        {
+            throw std::invalid_argument("[Server] Received invalid message [message_spec_int = " + std::to_string(message_spec_int) + "] at socket " + socket_addr + ".");
         }
     }
     catch (const zmq::error_t &e)
@@ -643,10 +709,9 @@ void MultiverseServer::bind_meta_data()
         throw std::invalid_argument("[Server] Request meta data at socket " + socket_addr + " doesn't have a simulation name.");
     }
     request_simulation_name = meta_data["simulation_name"].asString();
-
     if (simulation_name.empty() && worlds[request_world_name].simulations.count(request_simulation_name) > 0)
     {
-        throw std::invalid_argument("[Server] Request meta data at socket " + socket_addr + " requires an existing simulation name (" + request_simulation_name + ").");
+        throw std::invalid_argument("[Server] Request meta data at socket " + socket_addr + " requires an existing simulation name (" + request_simulation_name + "). ");
     }
 
     if (!simulation_name.empty() && worlds[request_world_name].simulations.count(request_simulation_name) == 0)
@@ -905,7 +970,7 @@ void MultiverseServer::bind_send_objects()
                 }
                 else
                 {
-                    // printf("[Server] Continue state [%s - %s] on socket %s\n", object_name.c_str(), attribute_name.c_str(), socket_addr.c_str());
+                    printf("[Server] Continue state [%s - %s] on socket %s\n", object_name.c_str(), attribute_name.c_str(), socket_addr.c_str());
                     continue_state = true;
                     attribute.attribute_double.is_sent = true;
 
@@ -930,7 +995,7 @@ void MultiverseServer::bind_send_objects()
                 }
                 else
                 {
-                    // printf("[Server] Continue state [%s - %s] on socket %s\n", object_name.c_str(), attribute_name.c_str(), socket_addr.c_str());
+                    printf("[Server] Continue state [%s - %s] on socket %s\n", object_name.c_str(), attribute_name.c_str(), socket_addr.c_str());
                     continue_state = true;
                     attribute.attribute_uint8_t.is_sent = true;
 
@@ -955,7 +1020,7 @@ void MultiverseServer::bind_send_objects()
                 }
                 else
                 {
-                    // printf("[Server] Continue state [%s - %s] on socket %s\n", object_name.c_str(), attribute_name.c_str(), socket_addr.c_str());
+                    printf("[Server] Continue state [%s - %s] on socket %s\n", object_name.c_str(), attribute_name.c_str(), socket_addr.c_str());
                     continue_state = true;
                     attribute.attribute_uint16_t.is_sent = true;
 
@@ -1249,21 +1314,15 @@ void MultiverseServer::send_response_meta_data()
     if (should_shut_down)
     {
         const int message_int = 0;
-        zmq::message_t response_message_int(sizeof(message_int));
-        memcpy(response_message_int.data(), &message_int, sizeof(message_int));
-        socket.send(response_message_int, zmq::send_flags::none);
+        send_message(&message_int, sizeof(message_int), /*more*/ false);
     }
     else
     {
         const int message_int = 1;
-        zmq::message_t response_message_int(sizeof(message_int));
-        memcpy(response_message_int.data(), &message_int, sizeof(message_int));
-        socket.send(response_message_int, zmq::send_flags::sndmore);
-
+        send_message(&message_int, sizeof(message_int), /*more*/ true);
         const std::string message_str = response_meta_data_json.toStyledString();
-        zmq::message_t response_message_str(message_str.size());
-        memcpy(response_message_str.data(), message_str.c_str(), message_str.size());
-        socket.send(response_message_str, zmq::send_flags::none);
+        printf("message str %s\n", message_str.c_str());
+        send_message(message_str.c_str(), strlen(message_str.c_str()), false);
     }
 }
 
@@ -1530,71 +1589,61 @@ void MultiverseServer::send_receive_data()
     if (should_shut_down)
     {
         const int message_spec_int = 0;
-        zmq::message_t message_spec(sizeof(int));
-        memcpy(message_spec.data(), &message_spec_int, sizeof(int));
-        socket.send(message_spec, zmq::send_flags::none);
+        send_message(&message_spec_int, sizeof(message_spec_int), /*more*/ false);
     }
     else
     {
         const int message_spec_int = 2 + (receive_buffer.buffer_double.size > 0) + (receive_buffer.buffer_uint8_t.size > 0) + (receive_buffer.buffer_uint16_t.size > 0);
-        zmq::message_t message_spec(sizeof(int));
-        memcpy(message_spec.data(), &message_spec_int, sizeof(int));
-        socket.send(message_spec, zmq::send_flags::sndmore);
+        send_message(&message_spec_int, sizeof(message_spec_int), /*more*/ true);
     }
 
-    zmq::message_t message_time(sizeof(double));
+    double message_time;
     if (worlds[world_name].simulations[simulation_name].meta_data_state == EMetaDataState::Reset)
     {
         worlds[world_name].simulations[simulation_name].meta_data_state = EMetaDataState::Normal;
         const double world_time = 0.0;
-        memcpy(message_time.data(), &world_time, sizeof(double));
+        memcpy(&message_time, &world_time, sizeof(double));
     }
     else
     {
-        memcpy(message_time.data(), &worlds[world_name].time, sizeof(double));
+        memcpy(&message_time, &worlds[world_name].time, sizeof(double));
     }
 
     if (receive_buffer.buffer_double.size > 0 || receive_buffer.buffer_uint8_t.size > 0 || receive_buffer.buffer_uint16_t.size > 0)
     {
-        socket.send(message_time, zmq::send_flags::sndmore);
+        send_message(&message_time, sizeof(message_time), /*more*/ true);
         if (receive_buffer.buffer_double.size > 0)
         {
-            zmq::message_t message_double(receive_buffer.buffer_double.size * sizeof(double));
-            memcpy(message_double.data(), receive_buffer.buffer_double.data, receive_buffer.buffer_double.size * sizeof(double));
             if (receive_buffer.buffer_uint8_t.size > 0 || receive_buffer.buffer_uint16_t.size > 0)
             {
-                socket.send(message_double, zmq::send_flags::sndmore);
+                send_message(receive_buffer.buffer_double.data, receive_buffer.buffer_double.size * sizeof(double), /*more*/ true);
             }
             else
             {
-                socket.send(message_double, zmq::send_flags::none);
+                send_message(receive_buffer.buffer_double.data, receive_buffer.buffer_double.size * sizeof(double), /*more*/ false);
             }
         }
 
         if (receive_buffer.buffer_uint8_t.size > 0)
         {
-            zmq::message_t message_uint8_t(receive_buffer.buffer_uint8_t.size * sizeof(uint8_t));
-            memcpy(message_uint8_t.data(), receive_buffer.buffer_uint8_t.data, receive_buffer.buffer_uint8_t.size * sizeof(uint8_t));
             if (receive_buffer.buffer_uint16_t.size > 0)
             {
-                socket.send(message_uint8_t, zmq::send_flags::sndmore);
+                send_message(receive_buffer.buffer_uint8_t.data, receive_buffer.buffer_uint8_t.size * sizeof(double), /*more*/ true);
             }
             else
             {
-                socket.send(message_uint8_t, zmq::send_flags::none);
+                send_message(receive_buffer.buffer_uint8_t.data, receive_buffer.buffer_uint8_t.size * sizeof(double), /*more*/ false);
             }
         }
 
         if (receive_buffer.buffer_uint16_t.size > 0)
         {
-            zmq::message_t message_uint16_t(receive_buffer.buffer_uint16_t.size * sizeof(uint16_t));
-            memcpy(message_uint16_t.data(), receive_buffer.buffer_uint16_t.data, receive_buffer.buffer_uint16_t.size * sizeof(uint16_t));
-            socket.send(message_uint16_t, zmq::send_flags::none);
+            send_message(receive_buffer.buffer_uint16_t.data, receive_buffer.buffer_uint16_t.size * sizeof(double), /*more*/ false);
         }
     }
     else
     {
-        socket.send(message_time, zmq::send_flags::none);
+        send_message(&message_time, sizeof(message_time), /*more*/ false);
     }
 }
 
@@ -1626,8 +1675,13 @@ void start_multiverse_server(const std::string &server_socket_addr)
 
         if (workers.count(receive_addr) == 0)
         {
+            printf("[Server] Created server %s.\n", receive_addr.c_str());
             workers[receive_addr] = std::thread([receive_addr]()
-                                                { MultiverseServer multiverse_server(receive_addr); multiverse_server.start(); });
+                                                { 
+                MultiverseServer multiverse_server(receive_addr); 
+                /* Wait a bit for worker setup */
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                multiverse_server.start(); });
         }
 
         zmq::message_t response(receive_addr.size());
@@ -1641,4 +1695,128 @@ void start_multiverse_server(const std::string &server_socket_addr)
     {
         worker.second.join();
     }
+}
+
+void start_multiverse_server_tcp(const std::string &host, const std::string &port)
+{
+    mv_log("[Server-TCP] Dispatcher listening on %s:%s", host.c_str(), port.c_str());
+
+    // Create main TCP listener
+    int listen_fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (listen_fd < 0)
+    {
+        perror("socket");
+        return;
+    }
+
+    int opt = 1;
+    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    sockaddr_in server_addr{};
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(static_cast<uint16_t>(std::stoi(port)));
+    server_addr.sin_addr.s_addr = inet_addr(host.c_str());
+    if (::bind(listen_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+    {
+        perror("bind");
+        ::close(listen_fd);
+        return;
+    }
+
+    if (::listen(listen_fd, 8) < 0)
+    {
+        perror("listen");
+        ::close(listen_fd);
+        return;
+    }
+
+    std::map<std::string, std::thread> workers;
+    bool shutting_down = false;
+
+    while (!should_shut_down && !shutting_down)
+    {
+        mv_log("[Server-TCP] Waiting for client connection on %s:%s", host.c_str(), port.c_str());
+        sockaddr_in client_addr{};
+        socklen_t client_len = sizeof(client_addr);
+        int client_fd = ::accept(listen_fd, (struct sockaddr *)&client_addr, &client_len);
+        if (client_fd < 0)
+        {
+            perror("accept");
+            continue;
+        }
+
+        std::vector<std::string> parts;
+        if (!rawtcp::recv_parts(client_fd, parts))
+        {
+            mv_log("[Server-TCP] Failed to receive handshake (protocol error).");
+            ::close(client_fd);
+            continue;
+        }
+        if (parts.empty() || parts[0].empty())
+        {
+            mv_log("[Server-TCP] Empty handshake request (no socket_addr).");
+            ::close(client_fd);
+            continue;
+        }
+
+        std::string request = parts[0];
+        mv_log("[Server-TCP] Received handshake request: \"%s\"", request.c_str());
+
+        // Parse request format "host:port"
+        std::string client_host = host;
+        uint16_t requested_port = 0;
+
+        auto pos = request.find(':');
+        if (pos != std::string::npos)
+        {
+            client_host = request.substr(0, pos);
+            try
+            {
+                requested_port = static_cast<uint16_t>(std::stoi(request.substr(pos + 1)));
+            }
+            catch (...)
+            {
+                requested_port = 0;
+            }
+        }
+
+        mv_log("[Server-TCP] Client requested port %u on host %s.", requested_port, client_host.c_str());
+        uint16_t worker_port = requested_port;
+        std::string worker_addr = host + ":" + std::to_string(requested_port);
+        mv_log("[Server-TCP] Launching worker for %s", request.c_str());
+
+        if (workers.count(worker_addr) == 0)
+        {
+            workers[worker_addr] = std::thread([worker_addr, host, worker_port]() {
+            try {
+                MultiverseServer worker_server(host, std::to_string(worker_port), TransportType::Tcp);
+                /* Wait a bit for worker setup */
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                worker_server.start();
+            } catch (const std::exception& e) {
+                mv_log("[Server-TCP-Worker] Exception on %s: %s", worker_addr.c_str(), e.what());
+            } });
+        }
+
+        // Respond to client with worker endpoint
+        std::vector<std::string> resp = {worker_addr};
+        if (!rawtcp::send_parts(client_fd, resp))
+        {
+            mv_log("[Server-TCP] Failed to send handshake response to client.");
+        }
+        else
+        {
+            mv_log("[Server-TCP] Sent worker address \"%s\" to client.", worker_addr.c_str());
+        }
+    }
+
+    mv_log("[Server-TCP] Dispatcher shutting down, waiting for workers...");
+    for (auto &[addr, t] : workers)
+    {
+        if (t.joinable())
+            t.join();
+    }
+
+    ::close(listen_fd);
+    mv_log("[Server-TCP] Dispatcher stopped.");
 }

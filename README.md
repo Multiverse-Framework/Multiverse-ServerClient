@@ -88,3 +88,60 @@ On Windows:
 ```cmd
 .\Multiverse-ServerClient\bin\multiverse_server.exe
 ```
+
+
+---
+
+## 🧪 Simple Run Test
+
+This section demonstrates how to start the **server** and **clients** for both **ZMQ** and **TCP** transport layers.
+
+### ⚙️ Option 1: ZMQ Transport
+
+**Start the Server**
+```bash
+./bin/multiverse_server --transport zmq --bind "tcp://*:7000"
+```
+
+**Run the Clients**
+
+Receiver:
+```bash
+./bin/test_multiverse_client --transport zmq --mode receiver --host tcp://127.0.0.1 --server 7000 --data 7001 --sim 1
+```
+
+Sender:
+```bash
+./bin/test_multiverse_client --transport zmq --mode sender --host tcp://127.0.0.1 --server 7000 --data 7002 --sim 2
+```
+
+---
+
+### ⚙️ Option 2: TCP Transport
+
+**Start the Server**
+```bash
+./bin/multiverse_server --transport tcp --bind 127.0.0.1:7000
+```
+
+**Run the Clients**
+
+Sender:
+```bash
+./bin/test_multiverse_client --transport tcp --mode sender --host 127.0.0.1 --server 7000 --data 7002 --sim 1
+```
+
+Receiver:
+```bash
+./bin/test_multiverse_client --transport tcp --mode receiver --host 127.0.0.1 --server 7000 --data 7001 --sim 2
+```
+
+---
+
+### 💡 Notes
+
+- Choose **either `zmq` or `tcp`** as your transport mode (not both simultaneously).
+- Port numbers `7000`, `7001`, and `7002` are examples — adjust them if needed.
+- Ensure all binaries are in your `PATH` or reference them with relative paths.
+
+---

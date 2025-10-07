@@ -27,6 +27,7 @@
 #include <vector>
 #include <json/json.h>
 #include <json/reader.h>
+#include <transport.hpp>
 
 /**
  * @brief Attributes that can be sent and received between the server and the
@@ -131,10 +132,12 @@ struct ConversionMap
 class MultiverseServer
 {
 public:
-    MultiverseServer(const std::string &in_socket_addr);
-
+    // ZMQ data-socket constructor (original behavior)
+    explicit MultiverseServer(const std::string& zmq_endpoint);
+    // Raw TCP data-socket constructor: bind(host, port) and accept() a single client
+    MultiverseServer(const std::string& host, const std::string& port, TransportType t);
+    
     ~MultiverseServer();
-
 public:
     /**
      * @brief Start the server, this function will run indefinitely until the
@@ -143,6 +146,8 @@ public:
      */
     void start();
 
+    // Expose protocol selection
+    TransportType transport() const { return protocol_; }
 private:
     /**
      * @brief Receive the request meta data or the data from the client,
@@ -168,7 +173,7 @@ private:
      *
      */
     void bind_meta_data();
-    
+
     /**
      * @brief Validate the meta data, check if there are empty fields in the
      * send fields and receive fields from request_meta_data_json.
@@ -252,70 +257,83 @@ private:
      */
     void send_receive_data();
 
+    // Return false on fatal error / disconnect.
+    bool recv_message(int& message_spec_int, std::vector<std::vector<uint8_t>>& payloads);
+
+    // Send a message composed as message_spec + payload(s)
+    bool send_message(const void* data, size_t len, bool more);
 private:
+    // Common
+    TransportType protocol_ = TransportType::Zmq;
+
+    int tcp_listen_fd = -1;
+    int tcp_conn_fd = -1;
+    std::string tcp_host;
+    std::string tcp_port;
+
     /**
      * @brief Flag to indicate the state of the server.
-     * 
+     *
      */
     EMultiverseServerState flag = EMultiverseServerState::ReceiveRequestMetaData;
 
     /**
      * @brief The socket address of the client.
-     * 
+     *
      */
     std::string socket_addr;
 
     /**
      * @brief The socket of the client.
-     * 
+     *
      */
     zmq::socket_t socket;
 
     /**
      * @brief The request meta data from the client.
-     * 
+     *
      */
     Json::Value request_meta_data_json;
 
     /**
      * @brief The send objects from the client, request_meta_data_json["send"] without empty fields.
-     * 
+     *
      */
     Json::Value send_objects_json;
 
     /**
      * @brief The response meta data from the client.
-     * 
+     *
      */
     Json::Value response_meta_data_json;
 
     /**
      * @brief The receive objects from the client, request_meta_data_json["receive"] without empty fields.
-     * 
+     *
      */
     Json::Value receive_objects_json;
 
     /**
      * @brief The send buffer.
-     * 
+     *
      */
     Buffer send_buffer;
 
     /**
      * @brief The receive buffer.
-     * 
+     *
      */
     Buffer receive_buffer;
 
     /**
      * @brief The conversion map for the data.
-     * 
+     *
      */
     ConversionMap conversion_map;
 
     /**
      * @brief The name of the world.
-     * 
+     *
      */
     std::string world_name;
 
@@ -329,7 +347,7 @@ private:
 
     /**
      * @brief The name of the simulation.
-     * 
+     *
      */
     std::string simulation_name;
 
@@ -343,14 +361,14 @@ private:
 
     /**
      * @brief The JSON reader.
-     * 
+     *
      */
     Json::Reader reader;
 
     /**
      * @brief If the data is nan, then the server will wait for the data to be
      * received, this flag will be set to false.
-     * 
+     *
      */
     bool is_receive_data_sent;
 
@@ -360,29 +378,32 @@ private:
      *
      */
     bool continue_state = false;
+
+    std::unique_ptr<ITransport> transport_ = nullptr;
 };
 
 /**
  * @brief Start the multiverse server with the server socket address.
- * 
+ *
  * @param server_socket_addr The server socket address.
  */
 void start_multiverse_server(const std::string &server_socket_addr);
 
+void start_multiverse_server_tcp(const std::string &host, const std::string &port);
 /**
  * @brief The flag to indicate if the server should shut down.
- * 
+ *
  */
 extern bool should_shut_down;
 
 /**
  * @brief The map that contains the sockets that need to be cleaned up.
- * 
+ *
  */
 extern std::map<std::string, bool> sockets_need_clean_up;
 
 /**
  * @brief The context of the server.
- * 
+ *
  */
 extern zmq::context_t server_context;

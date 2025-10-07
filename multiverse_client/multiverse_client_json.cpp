@@ -54,96 +54,120 @@ std::map<std::string, size_t> attribute_map_double = {
 
 bool MultiverseClientJson::compute_request_and_response_meta_data()
 {
+    // always start from a clean OBJECT
+    request_meta_data_json = Json::Value(Json::objectValue);
+
+    // parse & validate server response
+    response_meta_data_json = Json::Value(Json::nullValue);
     if (!response_meta_data_str.empty() &&
         reader.parse(response_meta_data_str, response_meta_data_json) &&
+        response_meta_data_json.isObject() &&
         response_meta_data_json.isMember("time") &&
+        response_meta_data_json["time"].isNumeric() &&
         response_meta_data_json["time"].asDouble() >= 0)
     {
-        request_meta_data_json["meta_data"] = response_meta_data_json["meta_data"];
-        request_meta_data_json["send"].clear();
-        request_meta_data_json["receive"].clear();
+        // copy meta_data if present
+        if (response_meta_data_json.isMember("meta_data"))
+            request_meta_data_json["meta_data"] = response_meta_data_json["meta_data"];
 
-        if (response_meta_data_json.isMember("send"))
+        // IMPORTANT: ensure "send"/"receive" are OBJECTS
+        request_meta_data_json["send"]    = Json::Value(Json::objectValue);
+        request_meta_data_json["receive"] = Json::Value(Json::objectValue);
+
+        if (response_meta_data_json.isMember("send") && response_meta_data_json["send"].isObject())
         {
             for (const std::string &object_name : response_meta_data_json["send"].getMemberNames())
             {
                 request_meta_data_json["send"][object_name] = Json::arrayValue;
-                for (const std::string &attribute_name : response_meta_data_json["send"][object_name].getMemberNames())
+                const Json::Value &attrs = response_meta_data_json["send"][object_name];
+                if (attrs.isObject())
                 {
-                    request_meta_data_json["send"][object_name].append(attribute_name);
+                    for (const std::string &attribute_name : attrs.getMemberNames())
+                        request_meta_data_json["send"][object_name].append(attribute_name);
                 }
             }
         }
-        if (response_meta_data_json.isMember("receive"))
+
+        if (response_meta_data_json.isMember("receive") && response_meta_data_json["receive"].isObject())
         {
             for (const std::string &object_name : response_meta_data_json["receive"].getMemberNames())
             {
                 request_meta_data_json["receive"][object_name] = Json::arrayValue;
-                for (const std::string &attribute_name : response_meta_data_json["receive"][object_name].getMemberNames())
+                const Json::Value &attrs = response_meta_data_json["receive"][object_name];
+                if (attrs.isObject())
                 {
-                    request_meta_data_json["receive"][object_name].append(attribute_name);
+                    for (const std::string &attribute_name : attrs.getMemberNames())
+                        request_meta_data_json["receive"][object_name].append(attribute_name);
                 }
             }
         }
+
         return true;
     }
+
     return false;
 }
 
 void MultiverseClientJson::compute_request_buffer_sizes(std::map<std::string, size_t> &send_buffer_size, std::map<std::string, size_t> &receive_buffer_size) const
 {
-    std::map<std::string, std::map<std::string, size_t>> request_buffer_sizes =
-        {{"send", {{"double", 0}, {"uint8", 0}, {"uint16", 0}}}, {"receive", {{"double", 0}, {"uint8", 0}, {"uint16", 0}}}};
-    for (std::pair<const std::string, std::map<std::string, size_t>> &request_buffer_size : request_buffer_sizes)
+    std::map<std::string, std::map<std::string, size_t>> sizes =
+        {{"send", {{"double", 0}, {"uint8", 0}, {"uint16", 0}}},
+         {"receive", {{"double", 0}, {"uint8", 0}, {"uint16", 0}}}};
+
+    for (auto &dir : sizes)
     {
-        for (const std::string &object_name : request_meta_data_json[request_buffer_size.first].getMemberNames())
+        const std::string &key = dir.first;   // "send" / "receive"
+        auto &acc = dir.second;
+
+        const Json::Value &obj = request_meta_data_json[key];
+        if (!obj.isObject()) { acc["double"] = acc["uint8"] = acc["uint16"] = static_cast<size_t>(-1); continue; }
+
+        for (const std::string &object_name : obj.getMemberNames())
         {
-            if (object_name.compare("") == 0 || (int)request_buffer_size.second["double"] == -1 || (int)request_buffer_size.second["uint8"] == -1 || (int)request_buffer_size.second["uint16"] == -1)
+            const Json::Value &arr = obj[object_name];
+            if (!arr.isArray()) { acc["double"] = acc["uint8"] = acc["uint16"] = static_cast<size_t>(-1); break; }
+
+            for (const Json::Value &attribute : arr)
             {
-                request_buffer_size.second["double"] = -1;
-                request_buffer_size.second["uint8"] = -1;
-                request_buffer_size.second["uint16"] = -1;
-                break;
-            }
-            for (const Json::Value &attribute : request_meta_data_json[request_buffer_size.first][object_name])
-            {
-                if (attribute.asString().compare("") == 0)
-                {
-                    request_buffer_size.second["double"] = -1;
-                    request_buffer_size.second["uint8"] = -1;
-                    request_buffer_size.second["uint16"] = -1;
-                    break;
-                }
-                if (attribute_map_double.find(attribute.asString()) != attribute_map_double.end())
-                {
-                    request_buffer_size.second["double"] += attribute_map_double[attribute.asString()];
-                }
+                if (!attribute.isString()) { acc["double"] = acc["uint8"] = acc["uint16"] = static_cast<size_t>(-1); break; }
+                auto it = attribute_map_double.find(attribute.asString());
+                if (it != attribute_map_double.end())
+                    acc["double"] += it->second;
             }
         }
     }
 
-    send_buffer_size = request_buffer_sizes["send"];
-    receive_buffer_size = request_buffer_sizes["receive"];
+    send_buffer_size = sizes["send"];
+    receive_buffer_size = sizes["receive"];
 }
 
 void MultiverseClientJson::compute_response_buffer_sizes(std::map<std::string, size_t> &send_buffer_size, std::map<std::string, size_t> &receive_buffer_size) const
 {
-    std::map<std::string, std::map<std::string, size_t>> response_buffer_sizes =
-        {{"send", {{"double", 0}, {"uint8", 0}, {"uint16", 0}}}, {"receive", {{"double", 0}, {"uint8", 0}, {"uint16", 0}}}};
-    for (std::pair<const std::string, std::map<std::string, size_t>> &response_buffer_size : response_buffer_sizes)
+    std::map<std::string, std::map<std::string, size_t>> sizes =
+        {{"send", {{"double", 0}, {"uint8", 0}, {"uint16", 0}}},
+         {"receive", {{"double", 0}, {"uint8", 0}, {"uint16", 0}}}};
+
+    for (auto &dir : sizes)
     {
-        for (const std::string &object_name : response_meta_data_json[response_buffer_size.first].getMemberNames())
+        const std::string &key = dir.first;
+        auto &acc = dir.second;
+
+        const Json::Value &obj = response_meta_data_json[key];
+        if (!obj.isObject()) continue;
+
+        for (const std::string &object_name : obj.getMemberNames())
         {
-            for (const std::string &attribute_name : response_meta_data_json[response_buffer_size.first][object_name].getMemberNames())
+            const Json::Value &attrs = obj[object_name];
+            if (!attrs.isObject()) continue;
+
+            for (const std::string &attribute_name : attrs.getMemberNames())
             {
                 if (attribute_map_double.find(attribute_name) != attribute_map_double.end())
-                {
-                    response_buffer_size.second["double"] += response_meta_data_json[response_buffer_size.first][object_name][attribute_name].size();
-                }
+                    acc["double"] += attrs[attribute_name].size(); // count elements of that attribute
             }
         }
     }
 
-    send_buffer_size = response_buffer_sizes["send"];
-    receive_buffer_size = response_buffer_sizes["receive"];
+    send_buffer_size = sizes["send"];
+    receive_buffer_size = sizes["receive"];
 }

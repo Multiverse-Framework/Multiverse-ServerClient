@@ -48,6 +48,11 @@ CLIENT_JSON_OBJ = multiverse_client_json.o
 PYBIND_SRC = multiverse_client_pybind.cpp
 PYBIND_OBJ = multiverse_client_pybind.o
 
+# Test
+TEST_CLIENT_SRC = test_multiverse_client.cpp
+TEST_CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -I.$(PATH_SEP)..$(PATH_SEP)ext$(PATH_SEP)include
+APP_CLIENT = ..$(PATH_SEP)bin$(PATH_SEP)test_multiverse_client$(EXE_EXT)
+
 # Output file paths
 LIB_DIR = ..$(PATH_SEP)lib$(PATH_SEP)$(PLATFORM)
 
@@ -62,10 +67,10 @@ CLIENT_JSON_IMPORT_LIB = $(LIB_DIR)$(PATH_SEP)libmultiverse_client_json$(EXT_IMP
 CLIENT_JSON_IMPORT_STATIC_LIB = $(LIB_DIR)$(PATH_SEP)libmultiverse_client_json$(EXT_IMP_STATIC)
 
 PYBIND_LIB = $(LIB_DIR)$(PATH_SEP)$(PYBIND_EXT)
-PYBIND_CXXFLAGS = -O3 -Wall -I.$(PATH_SEP) $(PYBIND_INCLUDE_DIR) -std=c++17 -fPIC -fvisibility=hidden
+PYBIND_CXXFLAGS = -O3 -Wall -I.$(PATH_SEP) $(PYBIND_INCLUDE_DIR) -I.$(PATH_SEP)..$(PATH_SEP)ext$(PATH_SEP)include -std=c++17 -fPIC -fvisibility=hidden
 
 # Final target
-all: $(CLIENT_SHARED_LIB) $(CLIENT_STATIC_LIB) $(CLIENT_JSON_SHARED_LIB) $(CLIENT_JSON_STATIC_LIB) $(PYBIND_LIB)
+all: $(CLIENT_SHARED_LIB) $(CLIENT_STATIC_LIB) $(CLIENT_JSON_SHARED_LIB) $(CLIENT_JSON_STATIC_LIB) $(PYBIND_LIB) $(APP_CLIENT)
 	@$(RM) $(CLIENT_OBJ)
 	@$(RM) $(CLIENT_JSON_OBJ)
 
@@ -92,6 +97,13 @@ $(CLIENT_JSON_STATIC_LIB): $(CLIENT_JSON_SRC) $(CLIENT_STATIC_LIB)
 # multiverse_client_pybind shared — depends on multiverse_client static
 $(PYBIND_LIB): $(PYBIND_SRC) $(CLIENT_STATIC_LIB)
 	$(CXX) $(PYBIND_CXXFLAGS) $(LDFLAGS) $< -o $@ $(CLIENT_STATIC_LIB) -l:libzmq$(EXT_IMP_STATIC) $(PYTHON_LIB)
+
+# -------- Test executable --------
+# g++ -std=c++17 -O2 -Wall -Wextra test_multiverse_client.cpp multiverse_client.cpp multiverse_client_json.cpp libzmq.a libjsoncpp.a -o app_client -lpthread -I../ext/include
+$(APP_CLIENT): $(TEST_CLIENT_SRC) $(CLIENT_SRC) $(CLIENT_JSON_SRC)
+	$(CXX) $(TEST_CXXFLAGS) $^ \
+		-L$(EXT_LIB_DIR) -l:libzmq$(EXT_IMP_STATIC) -l:libjsoncpp$(EXT_IMP_STATIC) \
+		$(SYS_LIBS) -o $@
 
 # Clean all outputs
 clean:
