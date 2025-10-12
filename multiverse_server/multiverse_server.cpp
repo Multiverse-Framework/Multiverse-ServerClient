@@ -317,22 +317,41 @@ MultiverseServer::MultiverseServer(const std::string &zmq_endpoint)
     std::printf("[Server] Bind to socket %s.\n", socket_addr.c_str());
 }
 
-MultiverseServer::MultiverseServer(const std::string &host, const std::string &port, TransportType t)
-    : protocol_(TransportType::Tcp)
+MultiverseServer::MultiverseServer(const std::string &host,
+                                   const std::string &port,
+                                   TransportType t)
+    : protocol_(t) 
 {
-    (void)t;
     tcp_host = host;
     tcp_port = port;
-    socket_addr = "rawtcp://" + host + ":" + port;
-    printf("[Server] (TCP) Listen on %s:%s.\n", host.c_str(), port.c_str());
-    auto tcp_transport = std::make_unique<TcpTransport>();
-    tcp_transport->set_dump(true);
-    tcp_transport->listen(host + ":" + port);
-    if (!tcp_transport->accept()) {
-        throw std::runtime_error("[Server] Failed to accept raw TCP connection on " + host + ":" + port);
+
+    if (t == TransportType::Tcp) {
+        socket_addr = "rawtcp://" + host + ":" + port;
+        printf("[Server] (TCP) Listen on %s:%s.\n", host.c_str(), port.c_str());
+
+        auto tcp_transport = std::make_unique<TcpTransport>();
+        tcp_transport->set_dump(true);
+        tcp_transport->listen(host + ":" + port);
+        if (!tcp_transport->accept()) {
+            throw std::runtime_error("[Server] Failed to accept raw TCP connection on "
+                                     + host + ":" + port);
+        }
+        transport_ = std::move(tcp_transport);
+        sockets_need_clean_up[socket_addr] = false;
+
+    } else if (t == TransportType::Udp) {
+        socket_addr = "rawudp://" + host + ":" + port;
+        printf("[Server] (UDP) Bind on %s:%s.\n", host.c_str(), port.c_str());
+
+        auto udp_transport = std::make_unique<UdpTransport>();
+        udp_transport->set_dump(true);
+        udp_transport->listen(host + ":" + port);
+        transport_ = std::move(udp_transport);
+        sockets_need_clean_up[socket_addr] = false;
+
+    } else {
+        throw std::runtime_error("[Server] Unsupported TransportType for server");
     }
-    transport_ = std::move(tcp_transport);
-    sockets_need_clean_up[socket_addr] = false;
 }
 
 bool MultiverseServer::recv_message(int &message_spec_int, std::vector<std::vector<uint8_t>> &payloads)
@@ -366,7 +385,7 @@ bool MultiverseServer::recv_message(int &message_spec_int, std::vector<std::vect
     {
         payloads.emplace_back(frames[i].begin(), frames[i].end());
     }
-
+    
     mv_dump_payloads(payloads);
     return true;
 }
@@ -1819,4 +1838,108 @@ void start_multiverse_server_tcp(const std::string &host, const std::string &por
 
     ::close(listen_fd);
     mv_log("[Server-TCP] Dispatcher stopped.");
+}
+
+void start_multiverse_server_udp(const std::string &host, const std::string &port)
+{
+    mv_log("[Server-UDP] Dispatcher binding on %s:%s", host.c_str(), port.c_str());
+
+    // ---- Create and bind UDP socket ----
+    int sock = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        perror("socket");
+        return;
+    }
+    int opt = 1;
+    ::setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    sockaddr_in srv{};
+    srv.sin_family = AF_INET;
+    srv.sin_port   = htons(static_cast<uint16_t>(std::stoi(port)));
+    srv.sin_addr.s_addr = inet_addr(host.c_str());
+    if (::bind(sock, reinterpret_cast<sockaddr*>(&srv), sizeof(srv)) < 0) {
+        perror("bind");
+        ::close(sock);
+        return;
+    }
+
+    std::map<std::string, std::thread> workers;
+    bool shutting_down = false;
+
+    // ---- Main loop: per datagram handshake ----
+    while (!should_shut_down && !shutting_down) {
+        mv_log("[Server-UDP] Waiting for handshake on %s:%s", host.c_str(), port.c_str());
+
+        std::vector<std::string> parts;
+        sockaddr_storage from{};
+        socklen_t fromlen = sizeof(from);
+
+        if (!rawudp::recv_parts_from(sock, parts, (sockaddr*)&from, &fromlen)) {
+            mv_log("[Server-UDP] Failed to receive handshake (protocol error).");
+            continue;
+        }
+        if (parts.empty() || parts[0].empty())
+        {
+            mv_log("[Server-UDP] Empty handshake request (no socket_addr).");
+            ::close(sock);
+            continue;
+        }
+
+        std::string request = parts[0];
+        mv_log("[Server-UDP] Received handshake request: \"%s\"", request.c_str());
+
+        // Parse "client_host:requested_port"
+        std::string client_host = host;
+        uint16_t requested_port = 0;
+        {
+            auto pos = request.find(':');
+            if (pos != std::string::npos) {
+                client_host = request.substr(0, pos);
+                try {
+                    requested_port = static_cast<uint16_t>(std::stoi(request.substr(pos + 1)));
+                } catch (...) {
+                    requested_port = 0;
+                }
+            }
+        }
+
+        // Choose worker port (auto-pick if 0)
+        uint16_t worker_port = requested_port;
+        std::string worker_addr = host + ":" + std::to_string(worker_port);
+
+        mv_log("[Server-UDP] Client requested port %u on host %s -> worker %s",
+               requested_port, client_host.c_str(), worker_addr.c_str());
+
+        // Launch worker once per unique worker address
+        if (workers.count(worker_addr) == 0) {
+            workers[worker_addr] = std::thread([worker_addr, host, worker_port]() {
+                try {
+                    MultiverseServer worker_server(host, std::to_string(worker_port), TransportType::Udp);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(300)); // small warm-up
+                    worker_server.start();
+                } catch (const std::exception& e) {
+                    mv_log("[Server-UDP-Worker] Exception on %s: %s", worker_addr.c_str(), e.what());
+                }
+            });
+        } else {
+            mv_log("[Server-UDP] Worker already running for %s", worker_addr.c_str());
+        }
+
+        // Respond to client with worker endpoint (one-shot reply to sender)
+        std::vector<std::string> resp = { worker_addr };
+        if (!rawudp::send_parts_to(sock, resp, (sockaddr*)&from, fromlen)) {
+            mv_log("[Server-UDP] Failed to send handshake response to client.");
+        } else {
+            mv_log("[Server-UDP] Sent worker address \"%s\" to client.", worker_addr.c_str());
+        }
+    }
+
+    mv_log("[Server-UDP] Dispatcher shutting down, waiting for workers...");
+    for (auto &kv : workers) {
+        auto &t = kv.second;
+        if (t.joinable()) t.join();
+    }
+
+    ::close(sock);
+    mv_log("[Server-UDP] Dispatcher stopped.");
 }

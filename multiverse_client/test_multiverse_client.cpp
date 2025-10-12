@@ -33,6 +33,18 @@ static const std::map<std::string, size_t> attribute_map_double = {
     {"torque", 3},
 };
 
+// ---- transport name helper (for logs) ----
+static const char* transport_name(TransportType t) {
+    switch (t) {
+        case TransportType::Zmq: return "zmq";
+        case TransportType::Tcp: return "tcp";
+        case TransportType::Udp: return "udp";
+        default: break;
+    }
+    return "?";
+}
+
+// ---------------- Connector ----------------
 class MultiverseKnowRobConnector : public MultiverseClientJson {
 public:
     enum class Mode { Sender, Receiver };
@@ -81,8 +93,9 @@ public:
         if (world_time) *world_time = 0.0;
         reset(); 
 
+        // Log uses a robust helper; if your enum has Udp, it prints "udp".
         std::cout << "[Init] mode=" << (mode_==Mode::Sender ? "Sender" : "Receiver")
-                  << " transport=" << (transport == TransportType::Tcp ? "tcp" : "zmq")
+                  << " transport=" << transport_name(transport)
                   << " host=" << host << " server=" << server_port
                   << " data=" << client_port << "\n";
     }
@@ -339,7 +352,7 @@ struct Args {
     std::string world="my_world", sim="sim01", host="127.0.0.1";
     std::string server="7000", data="7001";
     std::string mode="receiver";      // "sender" or "receiver"
-    std::string transport="";         // "tcp" or "zmq" (default decided below)
+    std::string transport="";         // "tcp" | "udp" | "zmq" (default decided below)
 };
 
 static Args parse_args(int argc, char** argv) {
@@ -394,11 +407,13 @@ int main(int argc, char** argv) {
     auto mode = (args.mode=="sender") ? MultiverseKnowRobConnector::Mode::Sender
                                       : MultiverseKnowRobConnector::Mode::Receiver;
 
+    // Map CLI -> TransportType (now supports UDP)
     TransportType tt = TransportType::Tcp;
-    if (args.transport=="zmq") tt = TransportType::Zmq;
+    if      (args.transport=="zmq") tt = TransportType::Zmq;
     else if (args.transport=="tcp") tt = TransportType::Tcp;
+    else if (args.transport=="udp") tt = TransportType::Udp;
     else {
-        KB_ERROR("Unknown --transport " << args.transport << " (use 'tcp' or 'zmq')");
+        KB_ERROR("Unknown --transport " << args.transport << " (use 'tcp', 'udp', or 'zmq')");
         return 2;
     }
 

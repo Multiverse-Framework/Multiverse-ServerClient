@@ -1,6 +1,7 @@
 #pragma once
 #include "socket_utils.hpp"
 #include "raw_tcp.hpp"
+#include "raw_udp.hpp"
 #include "log_utils.hpp"
 #include <string>
 #include <vector>
@@ -23,7 +24,8 @@
 
 enum class TransportType : unsigned char {
     Zmq,
-    Tcp
+    Tcp,
+    Udp
 };
 
 #define USE_ZMQ
@@ -57,6 +59,10 @@ public:
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(ms));
     }
+    TransportType get_transport_type() const { return transport_type_; }
+    void set_transport_type(TransportType t) { transport_type_ = t; }
+    protected:
+    TransportType transport_type_ = TransportType::Zmq;
 };
 
 // ---- ZMQ Transport Implementation ------------------------------------------
@@ -67,6 +73,7 @@ class ZmqTransport : public ITransport
 public:
     ZmqTransport(int type_)
     {
+        set_transport_type(TransportType::Zmq);
         ctx_ = zmq_ctx_new();
         if (!ctx_)
             throw std::runtime_error("ZmqTransport: zmq_ctx_new failed");
@@ -194,7 +201,9 @@ private:
     size_t in_next_ = 0;
 
 public:
-    TcpTransport() = default;
+    TcpTransport() {
+        set_transport_type(TransportType::Tcp);
+    }
     ~TcpTransport() override
     {
         disconnect("");
@@ -565,5 +574,353 @@ private:
         out_parts_.clear();
         in_parts_.clear();
         in_next_ = 0;
+    }
+};
+
+// ======== UDP Transport ======================================================
+class UdpTransport : public ITransport
+{
+private:
+    enum class Mode
+    {
+        Idle,
+        ClientReady,
+        ServerBound,
+        ServerConnected
+    };
+    // Socket (shared for client/server)
+    socket_t sockfd_{invalid_socket()};
+    std::string endpoint_;        // Peer or bind endpoint description
+    bool dump_{true};
+    Mode mode_{Mode::Idle};
+    // Buffers for multipart messages
+    std::vector<std::string> out_parts_;
+    std::vector<std::string> in_parts_;
+    size_t in_next_ = 0;
+    // Peer info (for default after connect or first recvfrom)
+    sockaddr_storage peer_{};
+    socklen_t peer_len_ = 0;
+    bool peer_known_ = false;
+
+    static std::pair<std::string, std::string> split_host_port(const std::string &endpoint)
+    {
+        if (endpoint.empty())
+            return {"", ""};
+        size_t host_end = endpoint.rfind(':');
+        if (endpoint[0] == '[')
+        {
+            host_end = endpoint.find("]:");
+            if (host_end != std::string::npos)
+            {
+                return {endpoint.substr(1, host_end - 1), endpoint.substr(host_end + 2)};
+            }
+        }
+        if (host_end == std::string::npos)
+        {
+            return {endpoint, ""}; // No port found
+        }
+        return {endpoint.substr(0, host_end), endpoint.substr(host_end + 1)};
+    }
+
+    static std::string describe_sockaddr(const sockaddr_storage &ss, socklen_t slen)
+    {
+        char host[NI_MAXHOST]{};
+        char serv[NI_MAXSERV]{};
+        if (getnameinfo(reinterpret_cast<const sockaddr *>(&ss), slen,
+                        host, sizeof(host), serv, sizeof(serv),
+                        NI_NUMERICHOST | NI_NUMERICSERV) == 0) {
+            return std::string(host) + ":" + std::string(serv);
+        }
+        return "<unknown_peer>";
+    }
+
+    void flush_out_parts()
+    {
+        ensure_can_send();
+        if (out_parts_.empty()) return;
+        if (!rawudp::send_parts(sockfd_, out_parts_)) {
+            throw std::runtime_error(make_socket_error_str("UdpTransport: send_parts failed"));
+        }
+        out_parts_.clear();
+    }
+
+    void ensure_in_parts()
+    {
+        ensure_can_recv();
+        if (in_next_ < in_parts_.size())
+            return; // still have frames
+
+        in_parts_.clear();
+        in_next_ = 0;
+
+        if (peer_known_)
+        {
+            if (!rawudp::recv_parts(sockfd_, in_parts_))
+            {
+                throw std::runtime_error(make_socket_error_str("UdpTransport: recv failed"));
+            }
+        }
+        else
+        {
+            sockaddr_storage sender{};
+            socklen_t slen = sizeof(sender);
+            if (!rawudp::recv_parts_from(sockfd_, in_parts_,
+                                         reinterpret_cast<sockaddr *>(&sender), &slen))
+            {
+                throw std::runtime_error(make_socket_error_str("UdpTransport: recvfrom failed"));
+            }
+
+            if (::connect(sockfd_, reinterpret_cast<sockaddr *>(&sender), slen) != 0)
+            {
+                throw std::runtime_error(make_socket_error_str("UdpTransport: connect to peer failed"));
+            }
+            peer_ = sender;
+            peer_len_ = slen;
+            peer_known_ = true;
+            endpoint_ = describe_sockaddr(peer_, peer_len_);
+            if (mode_ == Mode::ServerBound)
+                mode_ = Mode::ServerConnected;
+            if (dump_)
+                mv_log("[udp] peer established: %s", endpoint_.c_str());
+        }
+    }
+
+    void ensure_ready_or_throw() const
+    {
+        if (mode_ != Mode::ClientReady && mode_ != Mode::ServerConnected)
+        {
+            throw std::runtime_error("UdpTransport: not ready");
+        }
+    }
+
+    void ensure_can_send() const {
+        if (mode_ != Mode::ClientReady && mode_ != Mode::ServerConnected) {
+            throw std::runtime_error("UdpTransport: not ready to send");
+        }
+    }
+    void ensure_can_recv() const {
+        if (mode_ != Mode::ClientReady && mode_ != Mode::ServerConnected && mode_ != Mode::ServerBound) {
+            throw std::runtime_error("UdpTransport: not ready to recv");
+        }
+    }
+
+    void close_socket_internal()
+    {
+        if (is_valid_socket(sockfd_))
+        {
+            close_socket(sockfd_);
+            sockfd_ = invalid_socket();
+        }
+        endpoint_.clear();
+        peer_known_ = false;
+        peer_len_ = 0;
+        mode_ = Mode::Idle;
+    }
+
+    void clear_buffers()
+    {
+        out_parts_.clear();
+        in_parts_.clear();
+        in_next_ = 0;
+    }
+
+    struct AddrInfoGuard {
+        addrinfo* p;
+        ~AddrInfoGuard() { if (p) freeaddrinfo(p); }
+    };
+
+public:
+    UdpTransport() {
+        set_transport_type(TransportType::Udp);
+    };
+    ~UdpTransport() override
+    {
+        disconnect("");
+    }
+    void set_dump(bool on) { dump_ = on; }
+    void connect(const std::string &endpoint) override
+    {
+        disconnect("");
+        auto [host, port] = split_host_port(endpoint);
+        if (port.empty())
+        {
+            throw std::runtime_error("UdpTransport: port is missing in endpoint " + endpoint);
+        }
+        addrinfo hints{};
+        hints.ai_socktype = SOCK_DGRAM;
+        hints.ai_family   = AF_UNSPEC;
+        addrinfo* res = nullptr;
+        if (getaddrinfo(host.c_str(), port.c_str(), &hints, &res) != 0 || !res)
+        {
+            int gai_err = (res ? 0 : EAI_SYSTEM); // Fallback
+            throw std::runtime_error("UdpTransport: getaddrinfo failed for " + endpoint + ": " +
+                                     (gai_err ? gai_strerror(gai_err) : "no results"));
+        }
+        AddrInfoGuard guard{res};
+        for (auto* p = res; p; p = p->ai_next)
+        {
+            socket_t cand = ::socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+            if (!is_valid_socket(cand)) continue;
+            // Best-effort reuse
+            int yes = 1;
+            ::setsockopt(cand, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&yes), sizeof(yes));
+            if (::connect(cand, p->ai_addr, static_cast<socklen_t>(p->ai_addrlen)) == 0)
+            {
+                sockfd_ = cand;
+                peer_len_ = static_cast<socklen_t>(p->ai_addrlen);
+                std::memcpy(&peer_, p->ai_addr, peer_len_);
+                peer_known_ = true;
+                mode_ = Mode::ClientReady;
+                endpoint_ = describe_sockaddr(peer_, peer_len_);
+                if (dump_) mv_log("[udp] connected (default peer) to %s", endpoint_.c_str());
+                return;
+            }
+            close_socket(cand);
+        }
+        throw std::runtime_error(make_socket_error_str("UdpTransport: connect failed to " + endpoint));
+    }
+    // ==================== SERVER MODE ====================
+    void listen(const std::string &endpoint) override
+    {
+        disconnect("");
+
+        auto [host, port] = split_host_port(endpoint);
+        const bool is_any_host = (host == "*" || host.empty() || host == "0.0.0.0" || host == "::");
+
+        addrinfo hints{};
+        hints.ai_socktype = SOCK_DGRAM;
+        hints.ai_flags = AI_PASSIVE; 
+        hints.ai_family = AF_UNSPEC;
+
+        addrinfo *res = nullptr;
+        if (getaddrinfo(is_any_host ? nullptr : host.c_str(), port.c_str(), &hints, &res) != 0 || !res)
+        {
+            throw std::runtime_error(make_socket_error_str("UdpTransport: getaddrinfo(bind) failed for " + endpoint));
+        }
+        AddrInfoGuard guard{res};
+
+        for (auto *p = res; p; p = p->ai_next)
+        {
+            socket_t cand = ::socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+            if (!is_valid_socket(cand))
+                continue;
+
+            // --- Socket options (best-effort) ---
+            int yes = 1;
+            (void)::setsockopt(cand, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&yes), sizeof(yes));
+#if defined(SO_REUSEPORT)
+            (void)::setsockopt(cand, SOL_SOCKET, SO_REUSEPORT, reinterpret_cast<const char *>(&yes), sizeof(yes));
+#endif
+            // Enable dual-stack if IPv6 (so v4-mapped addresses work) — ignore errors if not supported
+            if (p->ai_family == AF_INET6)
+            {
+                int v6only = 0;
+                (void)::setsockopt(cand, IPPROTO_IPV6, IPV6_V6ONLY,
+                                   reinterpret_cast<const char *>(&v6only), sizeof(v6only));
+            }
+            int rcvbuf = 1 << 20; // 1 MiB
+            (void)::setsockopt(cand, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char *>(&rcvbuf), sizeof(rcvbuf));
+
+            if (::bind(cand, p->ai_addr, static_cast<socklen_t>(p->ai_addrlen)) == 0)
+            {
+                sockfd_ = cand;
+                sockaddr_storage local{};
+                socklen_t slen = static_cast<socklen_t>(sizeof(local));
+                if (::getsockname(sockfd_, reinterpret_cast<sockaddr *>(&local), &slen) == 0)
+                {
+                    endpoint_ = describe_sockaddr(local, slen);
+                }
+                else
+                {
+                    endpoint_ = endpoint;
+                }
+
+                mode_ = Mode::ServerBound;
+                peer_known_ = false;
+
+                if (dump_)
+                    mv_log("[udp] bound on %s", endpoint_.c_str());
+                return;
+            }
+
+            close_socket(cand);
+        }
+
+        throw std::runtime_error(make_socket_error_str("UdpTransport: bind failed on " + endpoint));
+    }
+    bool accept() override
+    {
+        throw std::runtime_error("UdpTransport: accept not supported; peer is established on first recv after listen");
+    }
+    void bind(const std::string &endpoint) override
+    {
+        listen(endpoint);
+    }
+    void unbind(const std::string & /*endpoint*/) override
+    {
+        disconnect("");
+    }
+    // ==================== COMMON API ====================
+    void disconnect(const std::string & /*endpoint*/) override
+    {
+        if (dump_ && (mode_ != Mode::Idle))
+            mv_log("[udp] disconnected");
+        close_socket_internal();
+        clear_buffers();
+    }
+    void send(const void *data, size_t len, bool more) override
+    {
+        ensure_ready_or_throw();
+        out_parts_.emplace_back(static_cast<const char *>(data), len);
+        if (!more)
+            flush_out_parts();
+    }
+    void send_text(const std::string &s, bool more) override
+    {
+        send(s.data(), s.size(), more);
+    }
+    void recv(void *data, size_t len) override
+    {
+        ensure_in_parts();
+        if (in_next_ >= in_parts_.size())
+        {
+            throw std::runtime_error("UdpTransport: recv called with no frames available");
+        }
+        const std::string &frame = in_parts_[in_next_++];
+        if (frame.size() != len)
+        {
+            throw std::runtime_error("UdpTransport: recv size mismatch (expected " +
+                                     std::to_string(len) + ", got " + std::to_string(frame.size()) + ")");
+        }
+        std::memcpy(data, frame.data(), len);
+    }
+    std::string recv_text() override
+    {
+        ensure_in_parts();
+        if (in_next_ >= in_parts_.size())
+        {
+            throw std::runtime_error("UdpTransport: recv_text called with no frames available");
+        }
+        return std::move(in_parts_[in_next_++]);
+    }
+    bool recv_multipart(std::vector<std::string> &parts) override
+    {
+        try
+        {
+            ensure_in_parts();
+            if (in_parts_.empty()) {
+                return false; // Peer closed or no data
+            }
+            parts = std::move(in_parts_);
+            in_parts_.clear();
+            in_next_ = 0;
+            if (dump_)
+                mv_log("[udp] recv_multipart: %zu part(s)", parts.size());
+            return true;
+        }
+        catch (const std::runtime_error &)
+        {
+            return false;
+        }
     }
 };

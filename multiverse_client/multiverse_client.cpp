@@ -25,13 +25,14 @@ void MultiverseClient::set_transport(TransportType t) {
 void MultiverseClient::ensure_transport_allocated() {
     if (transport_) return;
     switch (transport_type_) {
-#ifdef USE_ZMQ
     case TransportType::Zmq:
         transport_ = new ZmqTransport(ZMQ_REQ);
         break;
-#endif
     case TransportType::Tcp:
         transport_ = new TcpTransport();
+        break;
+    case TransportType::Udp:
+        transport_ = new UdpTransport();
         break;
     default:
         throw std::runtime_error("Unknown transport type");
@@ -126,6 +127,10 @@ void MultiverseClient::run() {
         case EMultiverseClientState::StartConnection:
             transport_->disconnect(socket_addr);
             transport_->connect(socket_addr);
+            if (transport_type_ == TransportType::Udp) {
+                // UDP "connect" is a no-op, so we wait a bit to ensure the server is ready
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            }
             flag = EMultiverseClientState::BindRequestMetaData;
             break;
 

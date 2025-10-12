@@ -14,6 +14,7 @@ namespace rawtcp {
  * @return true on success, false on error or if connection is closed.
  */
 inline bool write_full(socket_t fd, const void* buf, size_t n) {
+    mv_hexdump(buf, n,  64);
     const auto* p = static_cast<const uint8_t*>(buf);
     while (n > 0) {
         ssize_t w = ::send(fd, reinterpret_cast<const char*>(p), n, 0);

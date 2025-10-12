@@ -138,9 +138,30 @@ Receiver:
 
 ---
 
+### ⚙️ Option 3: UDP Transport
+
+**Start the Server**
+```bash
+./bin/multiverse_server --transport udp --bind 127.0.0.1:7000
+```
+
+**Run the Clients**
+
+Sender:
+```bash
+./bin/test_multiverse_client --transport udp --mode sender --host 127.0.0.1 --server 7000 --data 7002 --sim 1
+```
+
+Receiver:
+```bash
+./bin/test_multiverse_client --transport udp --mode receiver --host 127.0.0.1 --server 7000 --data 7001 --sim 2
+```
+
+---
+
 ### 💡 Notes
 
-- Choose **either `zmq` or `tcp`** as your transport mode (not both simultaneously).
+- Choose **either `zmq`, `tcp` or `udp`** as your transport mode (not both simultaneously).
 - Port numbers `7000`, `7001`, and `7002` are examples — adjust them if needed.
 - Ensure all binaries are in your `PATH` or reference them with relative paths.
 

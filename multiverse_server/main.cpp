@@ -11,21 +11,29 @@
 #include "multiverse_server.h"
 
 #define MULTIVERSE_ENABLE_RAW_TCP
+// Uncomment (or add in your build flags) when UDP dispatcher is compiled in
+#define MULTIVERSE_ENABLE_RAW_UDP
 
 #if defined(MULTIVERSE_ENABLE_RAW_TCP)
 void start_multiverse_server_tcp(const std::string &host, const std::string &port);
 #endif
+#if defined(MULTIVERSE_ENABLE_RAW_UDP)
+void start_multiverse_server_udp(const std::string &host, const std::string &port);
+#endif
 
-static bool use_zmq_transport(const char *env_val, const std::string &cli_val)
-{
+// --- Transport selection -----------------------------------------------------
+enum class TransportSel { Zmq, Tcp, Udp };
+
+static TransportSel parse_transport(const char *env_val, const std::string &cli_val) {
     std::string t = cli_val;
-    if (t.empty() && env_val)
-        t = env_val;
-    if (t.empty())
-        t = "zmq";
-    for (auto &c : t)
-        c = std::tolower(c);
-    return (t == "zmq");
+    if (t.empty() && env_val) t = env_val;
+    if (t.empty()) t = "zmq";
+    for (auto &c : t) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (t == "zmq") return TransportSel::Zmq;
+    if (t == "tcp") return TransportSel::Tcp;
+    if (t == "udp") return TransportSel::Udp;
+    std::cerr << "[Server] Unknown transport \"" << t << "\"; falling back to ZMQ.\n";
+    return TransportSel::Zmq;
 }
 
 static void split_host_port(const std::string &bind, std::string &host, std::string &port)
@@ -48,10 +56,11 @@ int main(int argc, char **argv)
     std::printf("Start Multiverse Server...\n");
 
     // defaults
-    std::string transport_cli; // "zmq" or "tcp"
-    std::string bind_cli;      // zmq endpoint or host:port
+    std::string transport_cli; // "zmq" | "tcp" | "udp"
+    std::string bind_cli;      // endpoint (ZMQ) or host:port (TCP/UDP)
     std::string zmq_default = "tcp://*:7000";
     std::string tcp_default = "0.0.0.0:7000";
+    std::string udp_default = "0.0.0.0:7000";
 
     // tiny CLI
     for (int i = 1; i < argc; ++i)
@@ -65,31 +74,36 @@ int main(int argc, char **argv)
             take(bind_cli);
         else if (k == "-h" || k == "--help")
         {
-            std::cout << "Usage: " << argv[0] << " [--transport zmq|tcp] [--bind <addr>]\n"
-                      << "  zmq mode: --bind ZMQ endpoint (default " << zmq_default << ")\n"
-                      << "  tcp mode: --bind host:port     (default " << tcp_default << ")\n";
+            std::cout << "Usage: " << argv[0] << " [--transport zmq|tcp|udp] [--bind <addr>]\n"
+                      << "  zmq: --bind ZMQ endpoint (default " << zmq_default << ")\n"
+                      << "  tcp: --bind host:port     (default " << tcp_default << ")\n"
+                      << "  udp: --bind host:port     (default " << udp_default << ")\n";
             return 0;
         }
         else
         {
-            // positional: treat as bind for current default
+            // positional: treat as bind
             bind_cli = k;
         }
     }
 
-    bool use_zmq = use_zmq_transport(std::getenv("MULTIVERSE_TRANSPORT"), transport_cli);
-    const std::string bind_val = !bind_cli.empty() ? bind_cli : (use_zmq ? zmq_default : tcp_default);
+    const auto transport = parse_transport(std::getenv("MULTIVERSE_TRANSPORT"), transport_cli);
+    const std::string bind_val = !bind_cli.empty()
+                                 ? bind_cli
+                                 : (transport == TransportSel::Zmq ? zmq_default
+                                    : (transport == TransportSel::Tcp ? tcp_default
+                                                                      : udp_default));
 
     // Ctrl+C -> graceful shutdown
     std::signal(SIGINT, [](int)
                 {
                     std::printf("[Server] Caught SIGINT (Ctrl+C), wait for 1s then shutdown.\n");
                     should_shut_down = true;
-                    zmq_sleep(1);              // harmless in tcp mode
-                    server_context.shutdown(); // safe even if unused in tcp mode
+                    zmq_sleep(1);              // harmless in tcp/udp modes if linked, else provide stub
+                    server_context.shutdown(); // safe even if unused in non-ZMQ modes
                 });
 
-    if (use_zmq)
+    if (transport == TransportSel::Zmq)
     {
         // ZMQ broker path (original behavior)
         std::thread th(start_multiverse_server, bind_val);
@@ -118,21 +132,38 @@ int main(int argc, char **argv)
     }
     else
     {
-        // RAW TCP broker path
+        // RAW TCP/UDP broker paths
         std::string host, port;
         split_host_port(bind_val, host, port);
-#if defined(MULTIVERSE_ENABLE_RAW_TCP)
-        std::thread th(start_multiverse_server_tcp, host, port);
-        while (!should_shut_down)
-            zmq_sleep(0.1);
-        if (th.joinable())
-            th.join();
-#else
-        std::cerr << "[Server] Raw TCP broker requested but not compiled in.\n"
-                  << "        Rebuild with -DMULTIVERSE_ENABLE_RAW_TCP and provide start_multiverse_server_tcp().\n"
-                  << "        Requested bind: " << host << ":" << port << std::endl;
-        return 2;
-#endif
+
+        if (transport == TransportSel::Tcp)
+        {
+        #if defined(MULTIVERSE_ENABLE_RAW_TCP)
+            std::thread th(start_multiverse_server_tcp, host, port);
+            while (!should_shut_down)
+                zmq_sleep(0.1);
+            if (th.joinable()) th.join();
+        #else
+            std::cerr << "[Server] Raw TCP broker requested but not compiled in.\n"
+                      << "        Rebuild with -DMULTIVERSE_ENABLE_RAW_TCP and provide start_multiverse_server_tcp().\n"
+                      << "        Requested bind: " << host << ":" << port << std::endl;
+            return 2;
+        #endif
+        }
+        else /* UDP */
+        {
+        #if defined(MULTIVERSE_ENABLE_RAW_UDP)
+            std::thread th(start_multiverse_server_udp, host, port);
+            while (!should_shut_down)
+                zmq_sleep(0.1);
+            if (th.joinable()) th.join();
+        #else
+            std::cerr << "[Server] Raw UDP broker requested but not compiled in.\n"
+                      << "        Rebuild with -DMULTIVERSE_ENABLE_RAW_UDP and provide start_multiverse_server_udp().\n"
+                      << "        Requested bind: " << host << ":" << port << std::endl;
+            return 3;
+        #endif
+        }
     }
 
     return 0;
