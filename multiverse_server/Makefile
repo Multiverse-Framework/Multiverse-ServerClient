@@ -15,7 +15,7 @@ else
     RM = rm -f $(TARGET)
 endif
 
-SRC = main.cpp multiverse_server.cpp
+SRC = main.cpp multiverse_server.cpp transport_runner.cpp
 
 all: $(TARGET)
 

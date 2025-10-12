@@ -386,7 +386,7 @@ bool MultiverseServer::recv_message(int &message_spec_int, std::vector<std::vect
         payloads.emplace_back(frames[i].begin(), frames[i].end());
     }
     
-    mv_dump_payloads(payloads);
+    // mv_dump_payloads(payloads);
     return true;
 }
 

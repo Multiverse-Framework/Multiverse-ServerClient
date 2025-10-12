@@ -96,6 +96,14 @@ On Windows:
 
 This section demonstrates how to start the **server** and **clients** for both **ZMQ** and **TCP** transport layers.
 
+### ⚙️ Option Multiple Servers
+**Start the Server**
+```bash
+./bin/multiverse_server --transport zmq --bind "tcp://*:7000" --transport tcp --bind 127.0.0.1:8000 --transport udp --bind 127.0.0.1:9000
+```
+
+---
+
 ### ⚙️ Option 1: ZMQ Transport
 
 **Start the Server**
@@ -128,12 +136,12 @@ Sender:
 
 Sender:
 ```bash
-./bin/test_multiverse_client --transport tcp --mode sender --host 127.0.0.1 --server 7000 --data 7002 --sim 1
+./bin/test_multiverse_client --transport tcp --mode sender --host 127.0.0.1 --server 8000 --data 8002 --sim 3
 ```
 
 Receiver:
 ```bash
-./bin/test_multiverse_client --transport tcp --mode receiver --host 127.0.0.1 --server 7000 --data 7001 --sim 2
+./bin/test_multiverse_client --transport tcp --mode receiver --host 127.0.0.1 --server 8000 --data 8001 --sim 4
 ```
 
 ---
@@ -149,12 +157,12 @@ Receiver:
 
 Sender:
 ```bash
-./bin/test_multiverse_client --transport udp --mode sender --host 127.0.0.1 --server 7000 --data 7002 --sim 1
+./bin/test_multiverse_client --transport udp --mode sender --host 127.0.0.1 --server 7000 --data 7002 --sim 5
 ```
 
 Receiver:
 ```bash
-./bin/test_multiverse_client --transport udp --mode receiver --host 127.0.0.1 --server 7000 --data 7001 --sim 2
+./bin/test_multiverse_client --transport udp --mode receiver --host 127.0.0.1 --server 7000 --data 7001 --sim 6
 ```
 
 ---
