@@ -28,12 +28,26 @@
 #include <zmq_addon.hpp>
 #include <transport.hpp>
 #include <atomic>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
-#include <arpa/inet.h>
-#include <unistd.h>
+#ifdef _WIN32
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
+    #ifdef _MSC_VER
+    #pragma comment(lib, "ws2_32.lib")
+    #endif
+    #define CLOSESOCK(s) closesocket(s)
+    #define GET_LAST_ERR() WSAGetLastError()
+#else
+    #include <sys/types.h>
+    #include <sys/socket.h>
+    #include <netinet/in.h>
+    #include <arpa/inet.h>
+    #include <netdb.h>
+    #include <unistd.h>
+    #define SOCKET int
+    #define INVALID_SOCKET (-1)
+    #define CLOSESOCK(s) close(s)
+    #define GET_LAST_ERR() errno
+#endif
 
 #include "multiverse_server.h"
 #include <log_utils.hpp>
@@ -1715,21 +1729,32 @@ void start_multiverse_server(const std::string &server_socket_addr)
         worker.second.join();
     }
 }
-
 void start_multiverse_server_tcp(const std::string &host, const std::string &port)
 {
+#ifdef _WIN32
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
+    {
+        fprintf(stderr, "WSAStartup failed\n");
+        return;
+    }
+#endif
+
     mv_log("[Server-TCP] Dispatcher listening on %s:%s", host.c_str(), port.c_str());
 
-    // Create main TCP listener
-    int listen_fd = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (listen_fd < 0)
+    SOCKET listen_fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (listen_fd == INVALID_SOCKET)
     {
         perror("socket");
         return;
     }
 
     int opt = 1;
+#ifdef _WIN32
+    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&opt, sizeof(opt));
+#else
     setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+#endif
 
     sockaddr_in server_addr{};
     server_addr.sin_family = AF_INET;
@@ -1738,14 +1763,20 @@ void start_multiverse_server_tcp(const std::string &host, const std::string &por
     if (::bind(listen_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
     {
         perror("bind");
-        ::close(listen_fd);
+        CLOSESOCK(listen_fd);
+#ifdef _WIN32
+        WSACleanup();
+#endif
         return;
     }
 
     if (::listen(listen_fd, 8) < 0)
     {
         perror("listen");
-        ::close(listen_fd);
+        CLOSESOCK(listen_fd);
+#ifdef _WIN32
+        WSACleanup();
+#endif
         return;
     }
 
@@ -1757,8 +1788,8 @@ void start_multiverse_server_tcp(const std::string &host, const std::string &por
         mv_log("[Server-TCP] Waiting for client connection on %s:%s", host.c_str(), port.c_str());
         sockaddr_in client_addr{};
         socklen_t client_len = sizeof(client_addr);
-        int client_fd = ::accept(listen_fd, (struct sockaddr *)&client_addr, &client_len);
-        if (client_fd < 0)
+        SOCKET client_fd = ::accept(listen_fd, (struct sockaddr *)&client_addr, &client_len);
+        if (client_fd == INVALID_SOCKET)
         {
             perror("accept");
             continue;
@@ -1768,178 +1799,179 @@ void start_multiverse_server_tcp(const std::string &host, const std::string &por
         if (!rawtcp::recv_parts(client_fd, parts))
         {
             mv_log("[Server-TCP] Failed to receive handshake (protocol error).");
-            ::close(client_fd);
+            CLOSESOCK(client_fd);
             continue;
         }
+
         if (parts.empty() || parts[0].empty())
         {
             mv_log("[Server-TCP] Empty handshake request (no socket_addr).");
-            ::close(client_fd);
+            CLOSESOCK(client_fd);
             continue;
         }
 
         std::string request = parts[0];
         mv_log("[Server-TCP] Received handshake request: \"%s\"", request.c_str());
 
-        // Parse request format "host:port"
         std::string client_host = host;
         uint16_t requested_port = 0;
-
         auto pos = request.find(':');
         if (pos != std::string::npos)
         {
             client_host = request.substr(0, pos);
-            try
-            {
-                requested_port = static_cast<uint16_t>(std::stoi(request.substr(pos + 1)));
-            }
-            catch (...)
-            {
-                requested_port = 0;
-            }
+            try { requested_port = static_cast<uint16_t>(std::stoi(request.substr(pos + 1))); }
+            catch (...) { requested_port = 0; }
         }
 
-        mv_log("[Server-TCP] Client requested port %u on host %s.", requested_port, client_host.c_str());
         uint16_t worker_port = requested_port;
-        std::string worker_addr = host + ":" + std::to_string(requested_port);
+        std::string worker_addr = host + ":" + std::to_string(worker_port);
         mv_log("[Server-TCP] Launching worker for %s", request.c_str());
 
         if (workers.count(worker_addr) == 0)
         {
             workers[worker_addr] = std::thread([worker_addr, host, worker_port]() {
-            try {
-                MultiverseServer worker_server(host, std::to_string(worker_port), TransportType::Tcp);
-                /* Wait a bit for worker setup */
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
-                worker_server.start();
-            } catch (const std::exception& e) {
-                mv_log("[Server-TCP-Worker] Exception on %s: %s", worker_addr.c_str(), e.what());
-            } });
+                try {
+                    MultiverseServer worker_server(host, std::to_string(worker_port), TransportType::Tcp);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                    worker_server.start();
+                } catch (const std::exception& e) {
+                    mv_log("[Server-TCP-Worker] Exception on %s: %s", worker_addr.c_str(), e.what());
+                }
+            });
         }
 
-        // Respond to client with worker endpoint
         std::vector<std::string> resp = {worker_addr};
         if (!rawtcp::send_parts(client_fd, resp))
         {
             mv_log("[Server-TCP] Failed to send handshake response to client.");
         }
-        else
-        {
-            mv_log("[Server-TCP] Sent worker address \"%s\" to client.", worker_addr.c_str());
-        }
+
+        CLOSESOCK(client_fd);
     }
 
     mv_log("[Server-TCP] Dispatcher shutting down, waiting for workers...");
     for (auto &[addr, t] : workers)
-    {
-        if (t.joinable())
-            t.join();
-    }
+        if (t.joinable()) t.join();
 
-    ::close(listen_fd);
+    CLOSESOCK(listen_fd);
+#ifdef _WIN32
+    WSACleanup();
+#endif
     mv_log("[Server-TCP] Dispatcher stopped.");
 }
 
+// ===========================================================================
+// UDP SERVER
+// ===========================================================================
 void start_multiverse_server_udp(const std::string &host, const std::string &port)
 {
+#ifdef _WIN32
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
+    {
+        fprintf(stderr, "WSAStartup failed\n");
+        return;
+    }
+#endif
+
     mv_log("[Server-UDP] Dispatcher binding on %s:%s", host.c_str(), port.c_str());
 
-    // ---- Create and bind UDP socket ----
-    int sock = ::socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock < 0) {
+    SOCKET sock = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock == INVALID_SOCKET)
+    {
         perror("socket");
         return;
     }
+
     int opt = 1;
+#ifdef _WIN32
+    ::setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char *)&opt, sizeof(opt));
+#else
     ::setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+#endif
 
     sockaddr_in srv{};
     srv.sin_family = AF_INET;
-    srv.sin_port   = htons(static_cast<uint16_t>(std::stoi(port)));
+    srv.sin_port = htons(static_cast<uint16_t>(std::stoi(port)));
     srv.sin_addr.s_addr = inet_addr(host.c_str());
-    if (::bind(sock, reinterpret_cast<sockaddr*>(&srv), sizeof(srv)) < 0) {
+    if (::bind(sock, reinterpret_cast<sockaddr*>(&srv), sizeof(srv)) < 0)
+    {
         perror("bind");
-        ::close(sock);
+        CLOSESOCK(sock);
+#ifdef _WIN32
+        WSACleanup();
+#endif
         return;
     }
 
     std::map<std::string, std::thread> workers;
     bool shutting_down = false;
 
-    // ---- Main loop: per datagram handshake ----
-    while (!should_shut_down && !shutting_down) {
+    while (!should_shut_down && !shutting_down)
+    {
         mv_log("[Server-UDP] Waiting for handshake on %s:%s", host.c_str(), port.c_str());
 
         std::vector<std::string> parts;
         sockaddr_storage from{};
         socklen_t fromlen = sizeof(from);
 
-        if (!rawudp::recv_parts_from(sock, parts, (sockaddr*)&from, &fromlen)) {
+        if (!rawudp::recv_parts_from(sock, parts, (sockaddr*)&from, &fromlen))
+        {
             mv_log("[Server-UDP] Failed to receive handshake (protocol error).");
             continue;
         }
         if (parts.empty() || parts[0].empty())
         {
             mv_log("[Server-UDP] Empty handshake request (no socket_addr).");
-            ::close(sock);
             continue;
         }
 
         std::string request = parts[0];
         mv_log("[Server-UDP] Received handshake request: \"%s\"", request.c_str());
 
-        // Parse "client_host:requested_port"
         std::string client_host = host;
         uint16_t requested_port = 0;
+        auto pos = request.find(':');
+        if (pos != std::string::npos)
         {
-            auto pos = request.find(':');
-            if (pos != std::string::npos) {
-                client_host = request.substr(0, pos);
-                try {
-                    requested_port = static_cast<uint16_t>(std::stoi(request.substr(pos + 1)));
-                } catch (...) {
-                    requested_port = 0;
-                }
-            }
+            client_host = request.substr(0, pos);
+            try { requested_port = static_cast<uint16_t>(std::stoi(request.substr(pos + 1))); }
+            catch (...) { requested_port = 0; }
         }
 
-        // Choose worker port (auto-pick if 0)
         uint16_t worker_port = requested_port;
         std::string worker_addr = host + ":" + std::to_string(worker_port);
 
         mv_log("[Server-UDP] Client requested port %u on host %s -> worker %s",
                requested_port, client_host.c_str(), worker_addr.c_str());
 
-        // Launch worker once per unique worker address
-        if (workers.count(worker_addr) == 0) {
+        if (workers.count(worker_addr) == 0)
+        {
             workers[worker_addr] = std::thread([worker_addr, host, worker_port]() {
                 try {
                     MultiverseServer worker_server(host, std::to_string(worker_port), TransportType::Udp);
-                    std::this_thread::sleep_for(std::chrono::milliseconds(300)); // small warm-up
+                    std::this_thread::sleep_for(std::chrono::milliseconds(300));
                     worker_server.start();
                 } catch (const std::exception& e) {
                     mv_log("[Server-UDP-Worker] Exception on %s: %s", worker_addr.c_str(), e.what());
                 }
             });
-        } else {
-            mv_log("[Server-UDP] Worker already running for %s", worker_addr.c_str());
         }
 
-        // Respond to client with worker endpoint (one-shot reply to sender)
-        std::vector<std::string> resp = { worker_addr };
-        if (!rawudp::send_parts_to(sock, resp, (sockaddr*)&from, fromlen)) {
+        std::vector<std::string> resp = {worker_addr};
+        if (!rawudp::send_parts_to(sock, resp, (sockaddr*)&from, fromlen))
+        {
             mv_log("[Server-UDP] Failed to send handshake response to client.");
-        } else {
-            mv_log("[Server-UDP] Sent worker address \"%s\" to client.", worker_addr.c_str());
         }
     }
 
     mv_log("[Server-UDP] Dispatcher shutting down, waiting for workers...");
-    for (auto &kv : workers) {
-        auto &t = kv.second;
+    for (auto &[addr, t] : workers)
         if (t.joinable()) t.join();
-    }
 
-    ::close(sock);
+    CLOSESOCK(sock);
+#ifdef _WIN32
+    WSACleanup();
+#endif
     mv_log("[Server-UDP] Dispatcher stopped.");
 }

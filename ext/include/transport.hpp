@@ -18,6 +18,7 @@
 #else
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
@@ -61,6 +62,31 @@ public:
     }
     TransportType get_transport_type() const { return transport_type_; }
     void set_transport_type(TransportType t) { transport_type_ = t; }
+    uint16_t get_port(const std::string& port_s) {
+        if (port_s.empty())
+        {
+            throw std::runtime_error("TcpTransport: missing port in endpoint");
+        }
+        unsigned long port_ul = 0;
+        try
+        {
+            size_t idx = 0;
+            port_ul = std::stoul(port_s, &idx, 10);
+            if (idx != port_s.size())
+                throw std::invalid_argument("non-digit characters found");
+        }
+        catch (const std::exception &e)
+        {
+            throw std::runtime_error("TcpTransport: invalid port \"" + port_s + "\" (" + e.what() + ")");
+        }
+
+        if (port_ul == 0 || port_ul > 65535)
+        {
+            throw std::runtime_error("TcpTransport: port out of range (" + std::to_string(port_ul) + ")");
+        }
+
+        return static_cast<uint16_t>(port_ul);
+    }
     protected:
     TransportType transport_type_ = TransportType::Zmq;
 };
@@ -213,23 +239,15 @@ public:
     {
         disconnect("");
 
-        auto [host, port_s] = split_host_port(endpoint);
-        if (port_s.empty())
-        {
-            throw std::runtime_error("TcpTransport: port is missing in endpoint " + endpoint);
-        }
-
         // --- Simple retry ---
         constexpr size_t kMaxAttempts = 12;
         constexpr int kSleepMs = 200;
         constexpr int kConnectErrLog = 1;
 
-        unsigned long port_ul = std::stoul(port_s);
-        if (port_ul == 0 || port_ul > 65535)
-        {
-            throw std::runtime_error("TcpTransport: invalid port " + port_s);
-        }
-        const uint16_t port = static_cast<uint16_t>(port_ul);
+        auto hp = split_host_port(endpoint);
+        const std::string &host = hp.first;
+        const std::string &port_s = hp.second;
+        const uint16_t port = get_port(port_s);
 
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
@@ -321,7 +339,9 @@ public:
     void listen(const std::string &endpoint) override
     {
         disconnect(""); // Clean up previous state
-        auto [host, port] = split_host_port(endpoint);
+        auto hp = split_host_port(endpoint);
+        const std::string &host = hp.first;
+        const std::string &port_s = hp.second;
         bool is_any_host = (host == "*" || host.empty() || host == "0.0.0.0" || host == "::");
 
         addrinfo hints{};
@@ -330,7 +350,7 @@ public:
         hints.ai_family = AF_UNSPEC;
 
         addrinfo *res = nullptr;
-        if (getaddrinfo(is_any_host ? nullptr : host.c_str(), port.c_str(), &hints, &res) != 0)
+        if (getaddrinfo(is_any_host ? nullptr : host.c_str(), port_s.c_str(), &hints, &res) != 0)
         {
             throw std::runtime_error(make_socket_error_str("TcpTransport: getaddrinfo(bind) failed for " + endpoint));
         }
@@ -741,7 +761,9 @@ public:
     void connect(const std::string &endpoint) override
     {
         disconnect("");
-        auto [host, port] = split_host_port(endpoint);
+        auto hp = split_host_port(endpoint);
+        const std::string &host = hp.first;
+        const std::string &port = hp.second;
         if (port.empty())
         {
             throw std::runtime_error("UdpTransport: port is missing in endpoint " + endpoint);
@@ -750,11 +772,18 @@ public:
         hints.ai_socktype = SOCK_DGRAM;
         hints.ai_family   = AF_UNSPEC;
         addrinfo* res = nullptr;
-        if (getaddrinfo(host.c_str(), port.c_str(), &hints, &res) != 0 || !res)
+        int rc = getaddrinfo(host.c_str(), port.c_str(), &hints, &res);
+        if (rc != 0 || !res)
         {
-            int gai_err = (res ? 0 : EAI_SYSTEM); // Fallback
+#ifdef _WIN32
+            int werr = WSAGetLastError();
+            throw std::runtime_error("UdpTransport: getaddrinfo failed for " + endpoint +
+                                     " (WSA error " + std::to_string(werr) + ")");
+#else
+            int gai_err = (rc ? rc : EAI_SYSTEM);
             throw std::runtime_error("UdpTransport: getaddrinfo failed for " + endpoint + ": " +
-                                     (gai_err ? gai_strerror(gai_err) : "no results"));
+                                     gai_strerror(gai_err));
+#endif
         }
         AddrInfoGuard guard{res};
         for (auto* p = res; p; p = p->ai_next)
@@ -783,8 +812,11 @@ public:
     void listen(const std::string &endpoint) override
     {
         disconnect("");
+    
+        auto hp = split_host_port(endpoint);
+        const std::string &host = hp.first;
+        const std::string &port = hp.second;
 
-        auto [host, port] = split_host_port(endpoint);
         const bool is_any_host = (host == "*" || host.empty() || host == "0.0.0.0" || host == "::");
 
         addrinfo hints{};

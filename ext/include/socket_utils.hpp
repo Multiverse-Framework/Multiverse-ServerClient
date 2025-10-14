@@ -1,21 +1,52 @@
 #pragma once
-
 #include <cstdint>
-#include <system_error> 
+#include <cstddef>
+#include <stdexcept>
 
 #ifdef _WIN32
-    #include <winsock2.h>
-    #include <ws2tcpip.h>
-    #pragma comment(lib, "Ws2_32.lib")
-    using socket_t = SOCKET;
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+
+#ifdef _MSC_VER
+#pragma comment(lib, "ws2_32.lib")
+#endif
+
+#ifndef _SSIZE_T_DEFINED
+#ifdef _WIN64
+typedef __int64 ssize_t;
 #else
-    #include <sys/types.h>
-    #include <sys/socket.h>
-    #include <netdb.h>
-    #include <unistd.h>
-    #include <cerrno>
-    #include <netinet/tcp.h> 
-    using socket_t = int;
+typedef long ssize_t;
+#endif
+#define _SSIZE_T_DEFINED
+#endif
+
+using socket_t = SOCKET;
+#define CLOSESOCK(s) closesocket(s)
+
+inline bool is_valid_socket(socket_t s) { return s != INVALID_SOCKET; }
+inline void close_socket(socket_t s) { closesocket(s); }
+inline int sock_errno() { return WSAGetLastError(); }
+inline socket_t invalid_socket() { return INVALID_SOCKET; }
+
+#else // POSIX / Linux / macOS
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <unistd.h>
+#include <cerrno>
+
+using socket_t = int;
+#define CLOSESOCK(s) close(s)
+
+inline bool is_valid_socket(socket_t s) { return s >= 0; }
+inline void close_socket(socket_t s) { close(s); }
+inline int sock_errno() { return errno; }
+inline socket_t invalid_socket() { return -1; }
+
 #endif
 
 /**
@@ -39,42 +70,6 @@ public:
 #endif
     }
 };
-
-// --- Cross-platform socket utility functions ---
-
-static inline bool is_valid_socket(socket_t s) {
-#ifdef _WIN32
-    return s != INVALID_SOCKET;
-#else
-    return s >= 0;
-#endif
-}
-
-static inline socket_t invalid_socket() {
-#ifdef _WIN32
-    return INVALID_SOCKET;
-#else
-    return -1;
-#endif
-}
-
-static inline int sock_errno() {
-#ifdef _WIN32
-    return WSAGetLastError();
-#else
-    return errno;
-#endif
-}
-
-static inline void close_socket(socket_t s) {
-    if (is_valid_socket(s)) {
-#ifdef _WIN32
-        ::closesocket(s);
-#else
-        ::close(s);
-#endif
-    }
-}
 
 /**
  * @brief Creates a standard cross-platform error message string.
