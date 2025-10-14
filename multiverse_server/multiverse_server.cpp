@@ -1713,7 +1713,7 @@ void start_multiverse_server(const std::string &server_socket_addr)
                                                 { 
                 MultiverseServer multiverse_server(receive_addr); 
                 /* Wait a bit for worker setup */
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                sleep_ms(500);
                 multiverse_server.start(); });
         }
 
@@ -1832,7 +1832,7 @@ void start_multiverse_server_tcp(const std::string &host, const std::string &por
             workers[worker_addr] = std::thread([worker_addr, host, worker_port]() {
                 try {
                     MultiverseServer worker_server(host, std::to_string(worker_port), TransportType::Tcp);
-                    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                    sleep_ms(500);
                     worker_server.start();
                 } catch (const std::exception& e) {
                     mv_log("[Server-TCP-Worker] Exception on %s: %s", worker_addr.c_str(), e.what());
@@ -1950,7 +1950,7 @@ void start_multiverse_server_udp(const std::string &host, const std::string &por
             workers[worker_addr] = std::thread([worker_addr, host, worker_port]() {
                 try {
                     MultiverseServer worker_server(host, std::to_string(worker_port), TransportType::Udp);
-                    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+                    sleep_ms(300);
                     worker_server.start();
                 } catch (const std::exception& e) {
                     mv_log("[Server-UDP-Worker] Exception on %s: %s", worker_addr.c_str(), e.what());

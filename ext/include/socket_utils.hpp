@@ -8,7 +8,6 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
-
 #ifdef _MSC_VER
 #pragma comment(lib, "ws2_32.lib")
 #endif
@@ -76,4 +75,12 @@ public:
  */
 static inline std::string make_socket_error_str(const std::string& prefix) {
     return prefix + " (errno " + std::to_string(sock_errno()) + ")";
+}
+
+inline void sleep_ms(int ms) {
+#ifdef _WIN32
+    Sleep(ms);
+#else
+    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+#endif
 }
