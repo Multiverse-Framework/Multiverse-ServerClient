@@ -422,6 +422,14 @@ int main(int argc, char** argv) {
               << " server=" << args.server << " data=" << args.data
               << " host=" << args.host << "\n";
 
+#ifdef _WIN32
+    WSADATA wsaData;
+    int wsaerr = WSAStartup(MAKEWORD(2, 2), &wsaData);
+    if (wsaerr != 0) {
+        throw std::runtime_error("WSAStartup failed with error: " + std::to_string(wsaerr));
+    }
+#endif
+
     MultiverseKnowRobConnector cli(args.world, args.sim, args.host, args.server, args.data, mode, tt);
     cli.start();
 
