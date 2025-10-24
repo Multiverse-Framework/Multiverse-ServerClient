@@ -81,7 +81,6 @@ private:
     std::string socket_addr;
     TransportType transport_type_ = TransportType::Zmq;
     ITransport* transport_ = nullptr;
-    bool should_shut_down = false;
     double reset_cool_down = 1.0;
     double reset_time = 0.0;
 

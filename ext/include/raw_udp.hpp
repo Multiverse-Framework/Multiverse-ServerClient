@@ -6,6 +6,7 @@
 #include <string>
 #include <cstdint>
 #include <cstring>
+#include "general.hpp"
 
 #ifndef MAX_UDP_PAYLOAD
 #define MAX_UDP_PAYLOAD 1200u
@@ -122,19 +123,29 @@ inline bool send_parts(socket_t fd, const std::vector<std::string>& parts) {
  * Receives one datagram via ::recv and decodes it.
  * Returns false on error or malformed packet.
  */
-inline bool recv_parts(socket_t fd, std::vector<std::string>& out) {
-    // One datagram; allocate a reasonable buffer.
-    // You may use ::ioctl(FIONREAD) to size exactly, but a fixed buffer is fine here.
+inline bool recv_parts(socket_t fd, std::vector<std::string>& out, int timeout_ms = 1000) {
     std::vector<uint8_t> buf(MAX_UDP_PAYLOAD);
+
+    // Wait for readiness (timeout)
+    fd_set rfds;
+    FD_ZERO(&rfds);
+    FD_SET(fd, &rfds);
+    timeval tv{timeout_ms / 1000, (timeout_ms % 1000) * 1000};
+
+    int sel = select(fd + 1, &rfds, nullptr, nullptr, &tv);
+    if (sel <= 0) {
+        if (ShutdownManager::is_shutdown()) return false;
+        if (sel == 0) return false; // timeout
+        perror("select");
+        return false;
+    }
+
 #ifdef _WIN32
     int n = ::recv(fd, reinterpret_cast<char*>(buf.data()), (int)buf.size(), 0);
 #else
     ssize_t n = ::recv(fd, buf.data(), buf.size(), 0);
 #endif
-    if (n <= 0) {
-        mv_log("[rawudp] recv failed: %d", (int)n);
-        return false;
-    }
+    if (n <= 0) return false;
     return decode_parts(buf.data(), (size_t)n, out);
 }
 
@@ -164,17 +175,29 @@ inline bool send_parts_to(socket_t fd,
  */
 inline bool recv_parts_from(socket_t fd,
                             std::vector<std::string>& out,
-                            struct sockaddr* from = nullptr, socklen_t* from_len = nullptr) {
+                            struct sockaddr* from = nullptr, socklen_t* from_len = nullptr, int timeout_ms = 1000) {
     std::vector<uint8_t> buf(MAX_UDP_PAYLOAD);
+
+    // Wait for readability
+    fd_set rfds;
+    FD_ZERO(&rfds);
+    FD_SET(fd, &rfds);
+    timeval tv{timeout_ms / 1000, (timeout_ms % 1000) * 1000};
+
+    int sel = select(fd + 1, &rfds, nullptr, nullptr, &tv);
+    if (sel <= 0) {
+        if (ShutdownManager::is_shutdown()) return false;
+        if (sel == 0) return false; // timeout
+        perror("select");
+        return false;
+    }
+
 #ifdef _WIN32
     int n = ::recvfrom(fd, reinterpret_cast<char*>(buf.data()), (int)buf.size(), 0, from, from_len);
 #else
     ssize_t n = ::recvfrom(fd, buf.data(), buf.size(), 0, from, from_len);
 #endif
-    if (n <= 0) {
-        mv_log("[rawudp] recvfrom failed: %d", (int)n);
-        return false;
-    }
+    if (n <= 0) return false;
     return decode_parts(buf.data(), (size_t)n, out);
 }
 

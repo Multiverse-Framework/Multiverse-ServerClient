@@ -1,9 +1,10 @@
-#include "multiverse_client.h"
 #include <chrono>
 #include <cstring>
 #include <stdexcept>
 #include <cstdio>
+#include "general.hpp"
 
+#include "multiverse_client.h"
 enum class EMultiverseClientState : unsigned char {
     None,
     StartConnection,
@@ -51,7 +52,7 @@ void MultiverseClient::connect_to_server() {
     // Disconnect from previous socket_addr if any
     transport_->disconnect(socket_addr);
 
-    if (should_shut_down) return;
+    if (ShutdownManager::is_shutdown()) return;
 
     auto current_flag = flag.load();
     if (current_flag == EMultiverseClientState::ReceiveData || current_flag == EMultiverseClientState::ReceiveResponseMetaData) {
@@ -73,7 +74,7 @@ void MultiverseClient::connect_to_server() {
         receive_socket_addr = transport_->recv_text();
         printf("[Client %s] Received response %s from %s.\n", client_port.c_str(), receive_socket_addr.c_str(), server_socket_addr.c_str());
     } catch (const std::exception& e) {
-        should_shut_down = true;
+        ShutdownManager::request_shutdown();
         printf("[Client %s] %s, prepares to disconnect from server socket %s.", client_port.c_str(), e.what(), server_socket_addr.c_str());
     }
 
@@ -127,7 +128,7 @@ double MultiverseClient::get_time_now() const {
 }
 
 void MultiverseClient::run() {
-    while (!should_shut_down) {
+    while (!ShutdownManager::is_shutdown()) {
         auto current_flag = flag.load();
         switch (current_flag) {
         case EMultiverseClientState::StartConnection:
@@ -239,7 +240,7 @@ void MultiverseClient::send_and_receive_meta_data() {
 }
 
 void MultiverseClient::send_request_meta_data() {
-    if (should_shut_down) {
+    if (ShutdownManager::is_shutdown()) {
         const int message_spec_int = 0;
         transport_->send(&message_spec_int, sizeof(int), false);
     } else {
@@ -285,12 +286,12 @@ void MultiverseClient::receive_data() {
     try {
         transport_->recv(&message_spec_int, sizeof(int));
     } catch (...) {
-        should_shut_down = true;
+        ShutdownManager::request_shutdown();
         return;
     }
 
     if (message_spec_int == 0) {
-        should_shut_down = true;
+        ShutdownManager::request_shutdown();
         return;
     } else if (message_spec_int == 1) {
         // meta-data string
@@ -348,7 +349,7 @@ void MultiverseClient::receive_data() {
         throw std::runtime_error("The message type [" + std::to_string(message_spec_int) + "] is not recognized.");
     }
 
-    if (!should_shut_down && *world_time == 0.0) {
+    if (!ShutdownManager::is_shutdown() && *world_time == 0.0) {
         const double time_now = get_time_now();
         if (time_now - reset_time > reset_cool_down) {
             printf("[Client %s] The socket %s from the server has received reset command.\n",
@@ -361,7 +362,7 @@ void MultiverseClient::receive_data() {
 }
 
 void MultiverseClient::check_response_meta_data() {
-    if (should_shut_down) {
+    if (ShutdownManager::is_shutdown()) {
         flag = EMultiverseClientState::BindResponseMetaData;
     } else if (compute_request_and_response_meta_data() && check_buffer_size()) {
         init_buffer();
@@ -420,7 +421,7 @@ void MultiverseClient::init_buffer() {
 
 bool MultiverseClient::communicate(const bool resend_request_meta_data) {
     const auto current_flag = flag.load();
-    if (should_shut_down || current_flag == EMultiverseClientState::None) return false;
+    if (ShutdownManager::is_shutdown() || current_flag == EMultiverseClientState::None) return false;
 
     if (current_flag == EMultiverseClientState::StartConnection) {
         run();
@@ -447,7 +448,7 @@ bool MultiverseClient::communicate(const bool resend_request_meta_data) {
 
 void MultiverseClient::disconnect() {
     if (!transport_) { printf("[Client %s] The client transport is not initialized.\n", client_port.c_str()); return; }
-    should_shut_down = true;
+    ShutdownManager::request_shutdown();
 
     run();
 

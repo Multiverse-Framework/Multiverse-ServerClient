@@ -2,7 +2,7 @@
 
 #include "socket_utils.hpp"
 #include "log_utils.hpp"
-
+#include "general.hpp"
 #include <vector>
 #include <string>
 #include <cstdint>
@@ -13,36 +13,59 @@ namespace rawtcp {
  * @brief Writes exactly n bytes to a descriptor.
  * @return true on success, false on error or if connection is closed.
  */
-inline bool write_full(socket_t fd, const void* buf, size_t n) {
-    mv_hexdump(buf, n,  64);
+inline bool write_full(socket_t fd, const void* buf, size_t n, int timeout_ms = 2000) {
     const auto* p = static_cast<const uint8_t*>(buf);
-    while (n > 0) {
+    while (n > 0 && !ShutdownManager::is_shutdown()) {
+        fd_set wfds;
+        FD_ZERO(&wfds);
+        FD_SET(fd, &wfds);
+        timeval tv{timeout_ms / 1000, (timeout_ms % 1000) * 1000};
+
+        int sel = select(fd + 1, nullptr, &wfds, nullptr, &tv);
+        if (sel <= 0) {
+            if (sel == 0)
+                mv_log("[rawtcp] write timeout");
+            else
+                perror("select (write)");
+            return false;
+        }
+
         ssize_t w = ::send(fd, reinterpret_cast<const char*>(p), n, 0);
         if (w <= 0) return false;
         p += w;
         n -= static_cast<size_t>(w);
     }
-    return true;
+    return !ShutdownManager::is_shutdown();
 }
 
 /**
  * @brief Reads exactly n bytes from a descriptor.
  * @return true on success, false on error or if connection is closed.
  */
-inline bool read_full(socket_t fd, void* buf, size_t n) {
+inline bool read_full(socket_t fd, void* buf, size_t n, int timeout_ms = 2000) {
     auto* p = static_cast<uint8_t*>(buf);
-    while (n > 0) {
-#ifdef _WIN32
-        // MSG_WAITALL is not universally supported on Windows
+    while (n > 0 && !ShutdownManager::is_shutdown()) {
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        FD_SET(fd, &rfds);
+        timeval tv{timeout_ms / 1000, (timeout_ms % 1000) * 1000};
+
+        int sel = select(fd + 1, &rfds, nullptr, nullptr, &tv);
+        if (sel <= 0) {
+            if (sel == 0)
+                mv_log("[rawtcp] read timeout");
+            else
+                perror("select (read)");
+            return false;
+        }
+
         ssize_t r = ::recv(fd, reinterpret_cast<char*>(p), n, 0);
-#else
-        ssize_t r = ::recv(fd, p, n, MSG_WAITALL);
-#endif
         if (r <= 0) return false;
+
         p += r;
         n -= static_cast<size_t>(r);
     }
-    return true;
+    return !ShutdownManager::is_shutdown();
 }
 
 /**

@@ -393,7 +393,6 @@ void start_multiverse_server_tcp(const std::string &host, const std::string &por
 
 void start_multiverse_server_udp(const std::string &host, const std::string &port);
 
-extern std::atomic<bool> g_should_shutdown;
 /**
  * @brief The map that contains the sockets that need to be cleaned up.
  *

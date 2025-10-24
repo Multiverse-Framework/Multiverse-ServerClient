@@ -8,10 +8,9 @@
 #include <vector>
 #include <utility>
 
+#include "general.hpp"
 #include "transport_runner.h"
 #include "runner_common.h"
-
-extern std::atomic<bool> g_should_shutdown;
 
 // -----------------------------------------------------------------------------
 // Only keep supported transports (compile-time)
@@ -187,7 +186,7 @@ int main(int argc, char **argv) {
 
     std::signal(SIGINT, [](int){
         std::printf("[Server] Caught SIGINT (Ctrl+C), shutting down...\n");
-        g_should_shutdown = true;
+        ShutdownManager::request_shutdown();
     });
 
     // -------------------------------------------------------------------------
@@ -242,7 +241,7 @@ int main(int argc, char **argv) {
     // -------------------------------------------------------------------------
     // Main wait loop
     // -------------------------------------------------------------------------
-    while (!g_should_shutdown) {
+    while (!ShutdownManager::is_shutdown()) {
         sleep_ms(100);
     }
 
