@@ -1,2 +1,3 @@
 .vscode
 ext/msys2
+*.o
