@@ -29,12 +29,18 @@ IMPLIB_CLIENT = $(LIBDIR)\multiverse_client.lib
 DLL_JSON = $(LIBDIR)\multiverse_client_json.dll
 IMPLIB_JSON = $(LIBDIR)\multiverse_client_json.lib
 
-# Default rule: build both
-all: static shared
+# ==== Variants ====
+VARIANTS = zmq tcp udp all
+DEFS_zmq = /DUSE_ZMQ /DUSE_TCP=0 /DUSE_UDP=0
+DEFS_tcp = /DUSE_ZMQ=0 /DUSE_TCP /DUSE_UDP=0
+DEFS_udp = /DUSE_ZMQ=0 /DUSE_TCP=0 /DUSE_UDP
+DEFS_all = /DUSE_ZMQ /DUSE_TCP /DUSE_UDP
+
+# Default rule: build both base and variants
+all: static shared variants
 	del /Q *.obj *.exp
 
 # ===== STATIC LIBS =====
-
 static: $(STATIC_LIB_CLIENT) $(STATIC_LIB_JSON)
 
 $(STATIC_LIB_CLIENT): $(OBJS_CLIENT)
@@ -44,7 +50,6 @@ $(STATIC_LIB_JSON): $(OBJS_JSON)
 	$(LIBTOOL) /OUT:$@ $**
 
 # ===== DYNAMIC LIBS =====
-
 shared: $(DLL_CLIENT) $(DLL_JSON)
 
 $(DLL_CLIENT): $(OBJS_CLIENT)
@@ -53,12 +58,26 @@ $(DLL_CLIENT): $(OBJS_CLIENT)
 $(DLL_JSON): $(OBJS_JSON)
 	$(LINK) $(LDFLAGS) /OUT:$@ /IMPLIB:$(IMPLIB_JSON) $(OBJS_JSON) libzmq-mt-4_3_5.lib jsoncpp.lib
 
-# ===== COMPILE RULE =====
+# ===== VARIANT BUILDS =====
+variants: $(foreach v,$(VARIANTS),$(LIBDIR)\multiverse_client_$(v).dll $(LIBDIR)\multiverse_client_json_$(v).dll)
 
+$(LIBDIR)\multiverse_client_$(v).dll: $(SRCS_CLIENT)
+	@echo Building variant $(v) ...
+	$(CC) $(CFLAGS) $(DEFS_$(v)) /Fo"multiverse_client_$(v).obj" $(SRCS_CLIENT)
+	$(LINK) $(LDFLAGS) /OUT:$(LIBDIR)\multiverse_client_$(v).dll /IMPLIB:$(LIBDIR)\multiverse_client_$(v).lib multiverse_client_$(v).obj libzmq-mt-4_3_5.lib
+
+$(LIBDIR)\multiverse_client_json_$(v).dll: $(SRCS_JSON)
+	@echo Building JSON variant $(v) ...
+	$(CC) $(CFLAGS) $(DEFS_$(v)) /Fo"multiverse_client_json_$(v).obj" $(SRCS_JSON)
+	$(LINK) $(LDFLAGS) /OUT:$(LIBDIR)\multiverse_client_json_$(v).dll /IMPLIB:$(LIBDIR)\multiverse_client_json_$(v).lib multiverse_client_json_$(v).obj libzmq-mt-4_3_5.lib jsoncpp.lib
+
+# ===== COMPILE RULE =====
 .cpp.obj:
 	$(CC) $(CFLAGS) $<
 
 # ===== CLEAN =====
-
 clean:
 	del /Q *.obj *.lib *.dll *.exp
+	del /Q $(LIBDIR)\multiverse_client_*.dll
+	del /Q $(LIBDIR)\multiverse_client_*.lib
+	@echo Clean complete.

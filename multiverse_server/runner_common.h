@@ -13,6 +13,3 @@ inline void sleep_ms(int ms) {
     std::this_thread::sleep_for(std::chrono::milliseconds(ms));
 #endif
 }
-
-// Global shutdown flag that all runners can check
-inline std::atomic<bool> g_should_shutdown{false};

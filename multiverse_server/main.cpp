@@ -11,14 +11,31 @@
 #include "transport_runner.h"
 #include "runner_common.h"
 
+extern std::atomic<bool> g_should_shutdown;
+
+// -----------------------------------------------------------------------------
+// Only keep supported transports (compile-time)
+// -----------------------------------------------------------------------------
 static TransportSel parse_transport_single(std::string t) {
     for (auto &c : t) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+#if USE_ZMQ
     if (t == "zmq") return TransportSel::Zmq;
+#endif
+#if USE_TCP
     if (t == "tcp") return TransportSel::Tcp;
+#endif
+#if USE_UDP
     if (t == "udp") return TransportSel::Udp;
-    throw std::runtime_error("Unknown transport: " + t);
+#endif
+
+    throw std::runtime_error("Unsupported or disabled transport: " + t);
 }
 
+// -----------------------------------------------------------------------------
+// Helper: split host:port
+// -----------------------------------------------------------------------------
+#if USE_TCP || USE_UDP
 static void split_host_port(const std::string &bind, std::string &host, std::string &port) {
     auto pos = bind.rfind(':');
     if (pos == std::string::npos) {
@@ -29,22 +46,38 @@ static void split_host_port(const std::string &bind, std::string &host, std::str
         port = bind.substr(pos + 1);
     }
 }
-
+#endif
+// -----------------------------------------------------------------------------
+// EndpointSpec
+// -----------------------------------------------------------------------------
 struct EndpointSpec {
     TransportSel t;
     std::string bind;
     bool has_bind = false;
 };
 
+// -----------------------------------------------------------------------------
+// Default bindings per transport (only for compiled-in ones)
+// -----------------------------------------------------------------------------
 static std::string default_bind_for(TransportSel t) {
     switch (t) {
+#if USE_ZMQ
         case TransportSel::Zmq: return "tcp://*:7000";
+#endif
+#if USE_TCP
         case TransportSel::Tcp: return "0.0.0.0:7000";
+#endif
+#if USE_UDP
         case TransportSel::Udp: return "0.0.0.0:7000";
+#endif
+        default: break;
     }
     return {};
 }
 
+// -----------------------------------------------------------------------------
+// Help text
+// -----------------------------------------------------------------------------
 static void print_help(const char* argv0) {
     std::cout
       << "Usage:\n"
@@ -54,18 +87,48 @@ static void print_help(const char* argv0) {
       << "  " << argv0 << " --transport zmq --bind tcp://*:7000\n"
       << "  " << argv0 << " --transport tcp --bind 127.0.0.1:8000 --transport udp --bind 127.0.0.1:9000\n"
       << "Defaults (when --bind omitted right after a transport):\n"
+#if USE_ZMQ
       << "  zmq: tcp://*:7000\n"
+#endif
+#if USE_TCP
       << "  tcp: 0.0.0.0:7000\n"
-      << "  udp: 0.0.0.0:7000\n";
+#endif
+#if USE_UDP
+      << "  udp: 0.0.0.0:7000\n"
+#endif
+      ;
 }
 
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
 int main(int argc, char **argv) {
     std::printf("Start Multiverse Server (multi-transport)...\n");
+
+    // Show build config summary
+#if USE_ZMQ
+    std::cout << "  ZMQ: ENABLED\n";
+#else
+    std::cout << "  ZMQ: DISABLED\n";
+#endif
+#if USE_TCP
+    std::cout << "  TCP: ENABLED\n";
+#else
+    std::cout << "  TCP: DISABLED\n";
+#endif
+#if USE_UDP
+    std::cout << "  UDP: ENABLED\n";
+#else
+    std::cout << "  UDP: DISABLED\n";
+#endif
 
     std::vector<EndpointSpec> specs;
     EndpointSpec pending{};
     bool have_pending = false;
 
+    // -------------------------------------------------------------------------
+    // Parse command-line arguments
+    // -------------------------------------------------------------------------
     if (argc == 1) {
         const char* env = std::getenv("MULTIVERSE_TRANSPORT");
         TransportSel env_sel = TransportSel::Zmq;
@@ -74,7 +137,6 @@ int main(int argc, char **argv) {
     } else {
         for (int i = 1; i < argc; ++i) {
             std::string k = argv[i];
-
             auto need_next = [&](const char* flag) {
                 if (i + 1 >= argc) throw std::runtime_error(std::string(flag) + " requires a value");
             };
@@ -93,7 +155,7 @@ int main(int argc, char **argv) {
                     have_pending = false;
                 }
                 std::string tval = argv[++i];
-                pending = EndpointSpec{parse_transport_single(tval), /*bind*/"", /*has_bind*/false};
+                pending = EndpointSpec{parse_transport_single(tval), "", false};
                 have_pending = true;
             } else if (k == "--bind") {
                 need_next("--bind");
@@ -104,7 +166,6 @@ int main(int argc, char **argv) {
                 pending.bind = b;
                 pending.has_bind = true;
             } else {
-                // Positional tokens: allow a shorthand ONLY if we have a pending transport
                 if (!have_pending) {
                     throw std::runtime_error("Unexpected positional argument: " + k);
                 }
@@ -112,8 +173,6 @@ int main(int argc, char **argv) {
                 pending.has_bind = true;
             }
         }
-
-        // Finalize trailing pending spec
         if (have_pending) {
             if (!pending.has_bind) {
                 pending.bind = default_bind_for(pending.t);
@@ -121,9 +180,7 @@ int main(int argc, char **argv) {
             }
             specs.push_back(pending);
         }
-
         if (specs.empty()) {
-            // Safety net: default to single ZMQ
             specs.push_back(EndpointSpec{TransportSel::Zmq, default_bind_for(TransportSel::Zmq), true});
         }
     }
@@ -133,27 +190,48 @@ int main(int argc, char **argv) {
         g_should_shutdown = true;
     });
 
+    // -------------------------------------------------------------------------
+    // Launch each enabled transport
+    // -------------------------------------------------------------------------
     std::vector<std::unique_ptr<IServerRunner>> runners;
-    runners.reserve(specs.size());
     std::vector<std::thread> threads;
-    threads.reserve(specs.size());
 
     for (const auto& sp : specs) {
+#if USE_ZMQ
         if (sp.t == TransportSel::Zmq) {
-            auto r = make_runner(sp.t, sp.bind, "" /*unused*/);
-            if (!r) { std::cerr << "[Server] Failed to create ZMQ runner for " << sp.bind << "\n"; continue; }
-            std::cout << "[Server] Launch " << r->name() << " @ " << sp.bind << "\n";
+            auto r = make_runner(sp.t, sp.bind, "");
+            if (!r) { std::cerr << "[Server] ZMQ runner not available\n"; continue; }
+            std::cout << "[Server] Launch ZMQ @ " << sp.bind << "\n";
             threads.emplace_back([rr = r.get()](){ rr->run(); });
             runners.emplace_back(std::move(r));
-        } else {
+            continue;
+        }
+#endif
+#if USE_TCP
+        if (sp.t == TransportSel::Tcp) {
             std::string host, port;
             split_host_port(sp.bind, host, port);
             auto r = make_runner(sp.t, host, port);
-            if (!r) { std::cerr << "[Server] Failed to create runner for " << sp.bind << "\n"; continue; }
-            std::cout << "[Server] Launch " << r->name() << " @ " << host << ":" << port << "\n";
+            if (!r) { std::cerr << "[Server] TCP runner not available\n"; continue; }
+            std::cout << "[Server] Launch TCP @ " << host << ":" << port << "\n";
             threads.emplace_back([rr = r.get()](){ rr->run(); });
             runners.emplace_back(std::move(r));
+            continue;
         }
+#endif
+#if USE_UDP
+        if (sp.t == TransportSel::Udp) {
+            std::string host, port;
+            split_host_port(sp.bind, host, port);
+            auto r = make_runner(sp.t, host, port);
+            if (!r) { std::cerr << "[Server] UDP runner not available\n"; continue; }
+            std::cout << "[Server] Launch UDP @ " << host << ":" << port << "\n";
+            threads.emplace_back([rr = r.get()](){ rr->run(); });
+            runners.emplace_back(std::move(r));
+            continue;
+        }
+#endif
+        std::cerr << "[Server] Transport not compiled in, skipped.\n";
     }
 
     if (threads.empty()) {
@@ -161,10 +239,15 @@ int main(int argc, char **argv) {
         return 2;
     }
 
+    // -------------------------------------------------------------------------
+    // Main wait loop
+    // -------------------------------------------------------------------------
     while (!g_should_shutdown) {
         sleep_ms(100);
     }
 
-    for (auto& t : threads) if (t.joinable()) t.join();
+    for (auto& t : threads)
+        if (t.joinable()) t.join();
+
     return 0;
 }

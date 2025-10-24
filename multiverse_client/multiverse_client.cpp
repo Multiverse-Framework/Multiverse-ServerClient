@@ -25,15 +25,21 @@ void MultiverseClient::set_transport(TransportType t) {
 void MultiverseClient::ensure_transport_allocated() {
     if (transport_) return;
     switch (transport_type_) {
+#if USE_ZMQ
     case TransportType::Zmq:
         transport_ = new ZmqTransport(ZMQ_REQ);
         break;
+#endif
+#if USE_TCP
     case TransportType::Tcp:
         transport_ = new TcpTransport();
         break;
+#endif
+#if USE_UDP
     case TransportType::Udp:
         transport_ = new UdpTransport();
         break;
+#endif
     default:
         throw std::runtime_error("Unknown transport type");
     }

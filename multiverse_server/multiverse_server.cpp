@@ -55,8 +55,8 @@
 #define STRING_SIZE 2000
 
 using namespace std::chrono_literals;
-
-bool should_shut_down = false;
+// Global shutdown flag that all runners can check
+std::atomic<bool> g_should_shutdown{false};
 std::map<std::string, bool> sockets_need_clean_up;
 zmq::context_t server_context{1};
 
@@ -314,6 +314,7 @@ static Json::Value sort_meta_data_json(const Json::Value &original)
 MultiverseServer::MultiverseServer(const std::string &zmq_endpoint)
     : protocol_(TransportType::Zmq)
 {
+#if USE_ZMQ
     socket_addr = zmq_endpoint;
 
     auto zmq_transport = std::make_unique<ZmqTransport>(ZMQ_REP);
@@ -329,6 +330,9 @@ MultiverseServer::MultiverseServer(const std::string &zmq_endpoint)
     transport_ = std::move(zmq_transport);
     sockets_need_clean_up[socket_addr] = false;
     std::printf("[Server] Bind to socket %s.\n", socket_addr.c_str());
+#else
+    throw std::runtime_error("[Server] ZMQ support is not enabled in this build.");
+#endif
 }
 
 MultiverseServer::MultiverseServer(const std::string &host,
@@ -340,6 +344,7 @@ MultiverseServer::MultiverseServer(const std::string &host,
     tcp_port = port;
 
     if (t == TransportType::Tcp) {
+#if USE_TCP
         socket_addr = "rawtcp://" + host + ":" + port;
         printf("[Server] (TCP) Listen on %s:%s.\n", host.c_str(), port.c_str());
 
@@ -352,8 +357,11 @@ MultiverseServer::MultiverseServer(const std::string &host,
         }
         transport_ = std::move(tcp_transport);
         sockets_need_clean_up[socket_addr] = false;
-
+#else
+        throw std::runtime_error("[Server] Raw TCP support is not enabled in this build.");
+#endif
     } else if (t == TransportType::Udp) {
+#if USE_UDP
         socket_addr = "rawudp://" + host + ":" + port;
         printf("[Server] (UDP) Bind on %s:%s.\n", host.c_str(), port.c_str());
 
@@ -362,7 +370,9 @@ MultiverseServer::MultiverseServer(const std::string &host,
         udp_transport->listen(host + ":" + port);
         transport_ = std::move(udp_transport);
         sockets_need_clean_up[socket_addr] = false;
-
+#else
+        throw std::runtime_error("[Server] Raw UDP support is not enabled in this build.");
+#endif
     } else {
         throw std::runtime_error("[Server] Unsupported TransportType for server");
     }
@@ -446,7 +456,7 @@ MultiverseServer::~MultiverseServer()
 
 void MultiverseServer::start()
 {
-    while (!should_shut_down)
+    while (!g_should_shutdown)
     {
         switch (flag)
         {
@@ -476,7 +486,7 @@ void MultiverseServer::start()
             mtx.unlock();
             wait_for_objects();
 
-            if (should_shut_down)
+            if (g_should_shutdown)
             {
                 break;
             }
@@ -717,7 +727,7 @@ EMultiverseServerState MultiverseServer::receive_data()
     }
     catch (const zmq::error_t &e)
     {
-        should_shut_down = true;
+        g_should_shutdown = true;
         printf("[Server] %s, socket %s prepares to close.\n", e.what(), socket_addr.c_str());
         return EMultiverseServerState::ReceiveRequestMetaData;
     }
@@ -763,7 +773,7 @@ void MultiverseServer::bind_meta_data()
 
         double start = get_time_now();
         double now = start;
-        while (!should_shut_down && request_simulation.meta_data_state != EMetaDataState::Normal)
+        while (!g_should_shutdown && request_simulation.meta_data_state != EMetaDataState::Normal)
         {
             now = get_time_now();
             if (now - start > 1)
@@ -1196,7 +1206,7 @@ void MultiverseServer::wait_for_objects()
         {
             start = now;
         }
-    } while (!should_shut_down && !found_all_objects);
+    } while (!g_should_shutdown && !found_all_objects);
 }
 
 void MultiverseServer::bind_receive_objects()
@@ -1284,7 +1294,7 @@ void MultiverseServer::wait_for_api_callbacks_response()
     double start = get_time_now();
     double now = get_time_now();
     bool stop = true;
-    while (!should_shut_down)
+    while (!g_should_shutdown)
     {
         now = get_time_now();
         stop = true;
@@ -1344,7 +1354,7 @@ void MultiverseServer::send_response_meta_data()
         continue_state = false;
     }
 
-    if (should_shut_down)
+    if (g_should_shutdown)
     {
         const int message_int = 0;
         send_message(&message_int, sizeof(message_int), /*more*/ false);
@@ -1380,7 +1390,7 @@ void MultiverseServer::wait_for_other_send_data()
     double start = get_time_now();
     double now = get_time_now();
     EMetaDataState &request_meta_data_state = worlds[request_world_name].simulations[request_simulation_name].meta_data_state;
-    while (!should_shut_down)
+    while (!g_should_shutdown)
     {
         if (request_meta_data_state == EMetaDataState::WaitAfterOtherBindSendData || request_meta_data_state == EMetaDataState::Normal)
         {
@@ -1439,7 +1449,7 @@ void MultiverseServer::wait_for_receive_data()
                         !worlds[world_name].objects[object_name].attributes[attribute_name].attribute_double.is_sent ||
                         !worlds[world_name].objects[object_name].attributes[attribute_name].attribute_uint8_t.is_sent ||
                         !worlds[world_name].objects[object_name].attributes[attribute_name].attribute_uint16_t.is_sent) &&
-                       !should_shut_down)
+                       !g_should_shutdown)
                 {
                     const double now = get_time_now();
                     if (now - start > 1)
@@ -1559,7 +1569,7 @@ void MultiverseServer::receive_new_request_meta_data()
     simulation.meta_data_state = EMetaDataState::WaitAfterOtherBindSendData;
     double start = get_time_now();
     double now = get_time_now();
-    while (!should_shut_down)
+    while (!g_should_shutdown)
     {
         if (simulation.meta_data_state == EMetaDataState::WaitAfterOtherSendRequestMetaData)
         {
@@ -1619,7 +1629,7 @@ void MultiverseServer::receive_new_request_meta_data()
 
 void MultiverseServer::send_receive_data()
 {
-    if (should_shut_down)
+    if (g_should_shutdown)
     {
         const int message_spec_int = 0;
         send_message(&message_spec_int, sizeof(message_spec_int), /*more*/ false);
@@ -1680,6 +1690,7 @@ void MultiverseServer::send_receive_data()
     }
 }
 
+#if USE_ZMQ
 void start_multiverse_server(const std::string &server_socket_addr)
 {
     std::map<std::string, std::thread> workers;
@@ -1688,7 +1699,7 @@ void start_multiverse_server(const std::string &server_socket_addr)
     printf("[Server] Create server socket %s\n", server_socket_addr.c_str());
 
     std::string receive_addr;
-    while (!should_shut_down)
+    while (!g_should_shutdown)
     {
         try
         {
@@ -1701,7 +1712,7 @@ void start_multiverse_server(const std::string &server_socket_addr)
         }
         catch (const zmq::error_t &e)
         {
-            should_shut_down = true;
+            g_should_shutdown = true;
             printf("[Server] %s, server socket %s prepares to close.\n", e.what(), server_socket_addr.c_str());
             break;
         }
@@ -1729,6 +1740,9 @@ void start_multiverse_server(const std::string &server_socket_addr)
         worker.second.join();
     }
 }
+#endif
+
+#if USE_TCP
 void start_multiverse_server_tcp(const std::string &host, const std::string &port)
 {
 #ifdef _WIN32
@@ -1783,7 +1797,7 @@ void start_multiverse_server_tcp(const std::string &host, const std::string &por
     std::map<std::string, std::thread> workers;
     bool shutting_down = false;
 
-    while (!should_shut_down && !shutting_down)
+    while (!g_should_shutdown && !shutting_down)
     {
         mv_log("[Server-TCP] Waiting for client connection on %s:%s", host.c_str(), port.c_str());
         sockaddr_in client_addr{};
@@ -1859,10 +1873,12 @@ void start_multiverse_server_tcp(const std::string &host, const std::string &por
 #endif
     mv_log("[Server-TCP] Dispatcher stopped.");
 }
+#endif
 
 // ===========================================================================
 // UDP SERVER
 // ===========================================================================
+#if USE_UDP
 void start_multiverse_server_udp(const std::string &host, const std::string &port)
 {
 #ifdef _WIN32
@@ -1907,7 +1923,7 @@ void start_multiverse_server_udp(const std::string &host, const std::string &por
     std::map<std::string, std::thread> workers;
     bool shutting_down = false;
 
-    while (!should_shut_down && !shutting_down)
+    while (!g_should_shutdown && !shutting_down)
     {
         mv_log("[Server-UDP] Waiting for handshake on %s:%s", host.c_str(), port.c_str());
 
@@ -1975,3 +1991,4 @@ void start_multiverse_server_udp(const std::string &host, const std::string &por
 #endif
     mv_log("[Server-UDP] Dispatcher stopped.");
 }
+#endif

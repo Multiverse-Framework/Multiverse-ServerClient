@@ -1,7 +1,4 @@
 #pragma once
-#include "socket_utils.hpp"
-#include "raw_tcp.hpp"
-#include "raw_udp.hpp"
 #include "log_utils.hpp"
 #include <string>
 #include <vector>
@@ -12,6 +9,21 @@
 #include <deque>
 #include <utility>
 
+#if USE_ZMQ
+#include <zmq.h>
+#include <zmq_addon.hpp>
+#endif
+
+#if USE_TCP
+#include "raw_tcp.hpp"
+#endif
+
+#if USE_UDP
+#include "raw_udp.hpp"
+#endif
+
+#include "socket_utils.hpp"
+#if USE_TCP || USE_UDP
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -22,6 +34,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
+#endif
 
 enum class TransportType : unsigned char {
     Zmq,
@@ -29,7 +42,6 @@ enum class TransportType : unsigned char {
     Udp
 };
 
-#define USE_ZMQ
 // ---- Transport Interface --------------------------------------------------
 class ITransport
 {
@@ -92,8 +104,7 @@ public:
 };
 
 // ---- ZMQ Transport Implementation ------------------------------------------
-#include <zmq.h>
-#include <zmq_addon.hpp>
+#if USE_ZMQ
 class ZmqTransport : public ITransport
 {
 public:
@@ -201,8 +212,10 @@ private:
     void *sock_{nullptr};
     zmq::socket_t socket;
 };
+#endif
 
 // ---- Raw TCP Transport Implementation -------------------------------------
+#if USE_TCP
 class TcpTransport : public ITransport
 {
 private:
@@ -596,8 +609,9 @@ private:
         in_next_ = 0;
     }
 };
-
+#endif
 // ======== UDP Transport ======================================================
+#if USE_UDP
 class UdpTransport : public ITransport
 {
 private:
@@ -956,3 +970,4 @@ public:
         }
     }
 };
+#endif

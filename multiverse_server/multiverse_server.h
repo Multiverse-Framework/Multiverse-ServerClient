@@ -392,12 +392,8 @@ void start_multiverse_server(const std::string &server_socket_addr);
 void start_multiverse_server_tcp(const std::string &host, const std::string &port);
 
 void start_multiverse_server_udp(const std::string &host, const std::string &port);
-/**
- * @brief The flag to indicate if the server should shut down.
- *
- */
-extern bool should_shut_down;
 
+extern std::atomic<bool> g_should_shutdown;
 /**
  * @brief The map that contains the sockets that need to be cleaned up.
  *

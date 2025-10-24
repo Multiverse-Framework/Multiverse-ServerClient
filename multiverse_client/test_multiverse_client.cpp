@@ -36,12 +36,44 @@ static const std::map<std::string, size_t> attribute_map_double = {
 // ---- transport name helper (for logs) ----
 static const char* transport_name(TransportType t) {
     switch (t) {
+#if USE_ZMQ
         case TransportType::Zmq: return "zmq";
+#endif
+#if USE_TCP
         case TransportType::Tcp: return "tcp";
+#endif
+#if USE_UDP
         case TransportType::Udp: return "udp";
+#endif
         default: break;
     }
     return "?";
+}
+
+// ---- compile-time helpers ----
+static bool is_transport_enabled(const std::string& name) {
+#if USE_ZMQ
+    if (name == "zmq") return true;
+#endif
+#if USE_TCP
+    if (name == "tcp") return true;
+#endif
+#if USE_UDP
+    if (name == "udp") return true;
+#endif
+    return false;
+}
+
+static const char* default_enabled_transport() {
+#if USE_ZMQ
+    return "zmq";
+#elif USE_TCP
+    return "tcp";
+#elif USE_UDP
+    return "udp";
+#else
+    return "?";
+#endif
 }
 
 // ---------------- Connector ----------------
@@ -58,7 +90,6 @@ public:
                                TransportType transport)
     : mode_(mode)
     {
-        // local metadata/schemas (client-side defaults)
         meta_data["world_name"]      = world;
         meta_data["simulation_name"] = sim;
         meta_data["length_unit"]     = "m";
@@ -67,7 +98,6 @@ public:
         meta_data["time_unit"]       = "s";
         meta_data["handedness"]      = "rhs";
 
-        // base transport endpoints
         host        = host_;
         server_port = server_port_;
         client_port = client_port_;
@@ -93,7 +123,6 @@ public:
         if (world_time) *world_time = 0.0;
         reset(); 
 
-        // Log uses a robust helper; if your enum has Udp, it prints "udp".
         std::cout << "[Init] mode=" << (mode_==Mode::Sender ? "Sender" : "Receiver")
                   << " transport=" << transport_name(transport)
                   << " host=" << host << " server=" << server_port
@@ -124,8 +153,7 @@ public:
                          const double quat[4])
     {
         auto it = send_objects_data.find(obj);
-        if (it == send_objects_data.end())
-        {
+        if (it == send_objects_data.end()) {
             std::cerr << "[set_object_pose] object not found in send_objects_data: " << obj << "\n";
             return;
         }
@@ -134,36 +162,15 @@ public:
         auto ip = amap.find("position");
         auto iq = amap.find("quaternion");
 
-        // Write position
         if (ip != amap.end() && ip->second.size() == 3)
-        {
-            for (size_t i = 0; i < 3; ++i)
-                *(ip->second[i]) = pos[i];
-        }
-        else
-        {
-            std::cerr << "[set_object_pose] '" << obj
-                      << "' is missing attribute 'position' (size 3).\n";
-        }
-
-        // Write quaternion
+            for (size_t i = 0; i < 3; ++i) *(ip->second[i]) = pos[i];
         if (iq != amap.end() && iq->second.size() == 4)
-        {
-            for (size_t i = 0; i < 4; ++i)
-                *(iq->second[i]) = quat[i];
-        }
-        else
-        {
-            std::cerr << "[set_object_pose] '" << obj
-                      << "' is missing attribute 'quaternion' (size 4).\n";
-        }
+            for (size_t i = 0; i < 4; ++i) *(iq->second[i]) = quat[i];
 
-        // ---- rate-limited debug print (every ~250 ms) ----
         using clock = std::chrono::steady_clock;
         static auto last = clock::now();
         auto now = clock::now();
-        if (now - last >= std::chrono::milliseconds(250))
-        {
+        if (now - last >= std::chrono::milliseconds(250)) {
             last = now;
             std::cout << "[pose->send] " << obj
                       << "  pos=[" << pos[0] << ", " << pos[1] << ", " << pos[2] << "]"
@@ -173,8 +180,7 @@ public:
 
     void set_knob(double v) { knob_.store(v); }
 
-    void log_receive_snapshot(std::chrono::milliseconds every = std::chrono::milliseconds(250)) const
-    {
+    void log_receive_snapshot(std::chrono::milliseconds every = std::chrono::milliseconds(250)) const {
         using clock = std::chrono::steady_clock;
         static thread_local auto last = clock::time_point{};
         auto now = clock::now();
@@ -185,20 +191,16 @@ public:
         double t = (world_time ? *world_time : -1.0);
         std::cout << "[recv] t=" << t << " s\n";
 
-        for (const auto &[obj, attrs] : receive_objects_data)
-        {
+        for (const auto &[obj, attrs] : receive_objects_data) {
             std::cout << "  [" << (obj.empty() ? "(default)" : obj) << "]";
-            if (attrs.empty())
-            {
+            if (attrs.empty()) {
                 std::cout << " <no-attrs>\n";
                 continue;
             }
             std::cout << "\n";
-            for (const auto &[name, vec] : attrs)
-            {
+            for (const auto &[name, vec] : attrs) {
                 std::cout << "    " << name << " = [";
-                for (size_t i = 0; i < vec.size(); ++i)
-                {
+                for (size_t i = 0; i < vec.size(); ++i) {
                     double v = vec[i] ? *vec[i] : std::numeric_limits<double>::quiet_NaN();
                     std::cout << v << (i + 1 < vec.size() ? ", " : "");
                 }
@@ -254,13 +256,10 @@ private:
             for (const auto& obj : root.getMemberNames()) {
                 std::set<std::string> attrs;
                 const Json::Value& entry = root[obj];
-                if (entry.isObject()) {
-                    // attributes are member names
+                if (entry.isObject())
                     for (const auto& attr : entry.getMemberNames()) attrs.insert(attr);
-                } else if (entry.isArray()) {
-                    // or server may echo arrays of attribute names
+                else if (entry.isArray())
                     for (const auto& v : entry) if (v.isString()) attrs.insert(v.asString());
-                }
                 if (!attrs.empty()) out[obj] = std::move(attrs);
             }
         };
@@ -327,7 +326,6 @@ private:
     void reset() override { sim_start_time = get_time_now(); }
 
 private:
-    // local state
     std::map<std::string, std::string> meta_data;
     std::map<std::string, std::set<std::string>> send_objects;
     std::map<std::string, std::set<std::string>> receive_objects;
@@ -351,8 +349,8 @@ static void on_signal(int){ g_exit.store(true); }
 struct Args {
     std::string world="my_world", sim="sim01", host="127.0.0.1";
     std::string server="7000", data="7001";
-    std::string mode="receiver";      // "sender" or "receiver"
-    std::string transport="";         // "tcp" | "udp" | "zmq" (default decided below)
+    std::string mode="receiver";
+    std::string transport="";
 };
 
 static Args parse_args(int argc, char** argv) {
@@ -384,11 +382,8 @@ static void print_attr_or_na(const std::map<std::string, std::vector<double*>>& 
                              const char* name) {
     std::cout << name << "=";
     auto it = attrs.find(name);
-    if (it != attrs.end()) {
-        print_vec(it->second);
-    } else {
-        std::cout << "<n/a>";
-    }
+    if (it != attrs.end()) print_vec(it->second);
+    else std::cout << "<n/a>";
 }
 
 int main(int argc, char** argv) {
@@ -397,25 +392,47 @@ int main(int argc, char** argv) {
 
     Args args = parse_args(argc, argv);
 
-    // decide default transport
-#ifdef USE_ZMQ
-    if (args.transport.empty()) args.transport = "zmq";
+    // ---- show build config ----
+    KB_INFO("Build config: "
+#if USE_ZMQ
+            "ZMQ=1 "
 #else
-    if (args.transport.empty()) args.transport = "tcp";
+            "ZMQ=0 "
 #endif
+#if USE_TCP
+            "TCP=1 "
+#else
+            "TCP=0 "
+#endif
+#if USE_UDP
+            "UDP=1"
+#else
+            "UDP=0"
+#endif
+    );
+
+    // ---- default / validate transport ----
+    if (args.transport.empty()) {
+        args.transport = default_enabled_transport();
+        KB_INFO("Default transport selected: " << args.transport);
+    } else if (!is_transport_enabled(args.transport)) {
+        KB_ERROR("Transport '" << args.transport << "' is not compiled in this build.");
+        return 3;
+    }
 
     auto mode = (args.mode=="sender") ? MultiverseKnowRobConnector::Mode::Sender
                                       : MultiverseKnowRobConnector::Mode::Receiver;
 
-    // Map CLI -> TransportType (now supports UDP)
     TransportType tt = TransportType::Tcp;
-    if      (args.transport=="zmq") tt = TransportType::Zmq;
-    else if (args.transport=="tcp") tt = TransportType::Tcp;
-    else if (args.transport=="udp") tt = TransportType::Udp;
-    else {
-        KB_ERROR("Unknown --transport " << args.transport << " (use 'tcp', 'udp', or 'zmq')");
-        return 2;
-    }
+#if USE_ZMQ
+    if (args.transport=="zmq") tt = TransportType::Zmq;
+#endif
+#if USE_TCP
+    if (args.transport=="tcp") tt = TransportType::Tcp;
+#endif
+#if USE_UDP
+    if (args.transport=="udp") tt = TransportType::Udp;
+#endif
 
     std::cout << "[App] mode=" << args.mode
               << " transport=" << args.transport
