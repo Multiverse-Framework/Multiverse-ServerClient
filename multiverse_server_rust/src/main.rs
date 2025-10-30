@@ -1,12 +1,13 @@
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
-use multiverse_server_rs::server::MultiverseServer;
+use multiverse_server_rs::dispatcher::{
+    start_tcp_dispatcher, start_udp_dispatcher, start_zmq_dispatcher
+};
 use multiverse_server_rs::transport::TransportType;
-use multiverse_server_rs::utils::{should_shutdown, set_shutdown};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use multiverse_server_rs::utils::{set_shutdown, should_shutdown};
+// std::sync::atomic and Arc are no longer needed here
 use tokio::signal;
-use tokio::task::JoinSet;
+use tokio::task::{JoinSet, LocalSet}; // Import LocalSet
 use tracing::{error, info};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -56,7 +57,7 @@ fn parse_endpoint_specs(args: Args) -> Result<Vec<EndpointSpec>> {
     let binds = args.bind;
 
     if transports.is_empty() {
-        // Default: ZMQ on tcp://*:7000
+        // Default: ZMQ on tcp://*:7000 (or TCP if ZMQ not available)
         #[cfg(feature = "use-zmq")]
         {
             specs.push(EndpointSpec {
@@ -64,9 +65,16 @@ fn parse_endpoint_specs(args: Args) -> Result<Vec<EndpointSpec>> {
                 bind_addr: "tcp://*:7000".to_string(),
             });
         }
-        #[cfg(not(feature = "use-zmq"))]
+        #[cfg(all(not(feature = "use-zmq"), feature = "use-tcp"))]
         {
-            anyhow::bail!("No transport specified and ZMQ is not enabled");
+            specs.push(EndpointSpec {
+                transport: TransportType::Tcp,
+                bind_addr: "0.0.0.0:7000".to_string(),
+            });
+        }
+        #[cfg(all(not(feature = "use-zmq"), not(feature = "use-tcp")))]
+        {
+            anyhow::bail!("No transport specified and no default transport is enabled");
         }
     } else {
         for (i, transport_arg) in transports.iter().enumerate() {
@@ -106,7 +114,12 @@ fn split_host_port(bind: &str) -> (String, String) {
     }
 }
 
-#[tokio::main]
+//
+// --- Main Function ---
+//
+// Use a single-threaded "current_thread" runtime.
+// This is REQUIRED because all dispatchers use tokio::task::spawn_local.
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt()
@@ -116,21 +129,21 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    info!("Starting Multiverse Server (multi-transport)...");
+    info!("Starting Multiverse Server (multi-transport with dispatcher/worker pattern)...");
 
     // Show build configuration
     #[cfg(feature = "use-zmq")]
-    info!("  ZMQ: ENABLED");
+    info!("  ZMQ: ENABLED (with dispatcher/worker)");
     #[cfg(not(feature = "use-zmq"))]
     info!("  ZMQ: DISABLED");
 
     #[cfg(feature = "use-tcp")]
-    info!("  TCP: ENABLED");
+    info!("  TCP: ENABLED (with dispatcher/worker)");
     #[cfg(not(feature = "use-tcp"))]
     info!("  TCP: DISABLED");
 
     #[cfg(feature = "use-udp")]
-    info!("  UDP: ENABLED");
+    info!("  UDP: ENABLED (with dispatcher/worker)");
     #[cfg(not(feature = "use-udp"))]
     info!("  UDP: DISABLED");
 
@@ -141,88 +154,91 @@ async fn main() -> Result<()> {
         anyhow::bail!("No valid transport specifications provided");
     }
 
-    // Setup signal handler
-    let shutdown_flag = Arc::new(AtomicBool::new(false));
-    let shutdown_flag_clone = shutdown_flag.clone();
+    // --- Task Spawning ---
+    // We use a LocalSet to spawn !Send tasks (our dispatchers)
+    // on the current_thread runtime.
+    let local_set = LocalSet::new();
 
-    tokio::spawn(async move {
-        if let Err(e) = signal::ctrl_c().await {
-            error!("Failed to listen for Ctrl+C: {}", e);
-            return;
-        }
-        info!("[Server] Caught SIGINT (Ctrl+C), shutting down...");
-        shutdown_flag_clone.store(true, Ordering::Relaxed);
-        set_shutdown();
-    });
+    // Run the LocalSet until all tasks are complete
+    local_set
+        .run_until(async move {
+            //
+            // --- ALL SPAWNING MUST HAPPEN *INSIDE* run_until ---
+            //
 
-    // Launch servers
-    let mut join_set = JoinSet::new();
+            // Setup signal handler
+            // Use tokio::task::spawn_local since we are in a LocalSet
+            tokio::task::spawn_local(async move {
+                if let Err(e) = signal::ctrl_c().await {
+                    error!("Failed to listen for Ctrl+C: {}", e);
+                    return;
+                }
+                info!("[Server] Caught SIGINT (Ctrl+C), shutting down...");
+                set_shutdown();
+            });
 
-    for spec in specs {
-        match spec.transport {
-            #[cfg(feature = "use-zmq")]
-            TransportType::Zmq => {
-                let bind_addr = spec.bind_addr.clone();
-                info!("[Server] Launching ZMQ @ {}", bind_addr);
-                // Spawn ZMQ server on a dedicated blocking thread since ZMQ is not Send
-                join_set.spawn_blocking(move || {
-                    // Create a new Tokio runtime for this thread
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async move {
-                        if let Err(e) = run_zmq_server(&bind_addr).await {
-                            error!("[ZMQ Server] Error: {}", e);
-                        }
-                    });
-                });
-            }
-            #[cfg(feature = "use-tcp")]
-            TransportType::Tcp => {
-                let (host, port) = split_host_port(&spec.bind_addr);
-                info!("[Server] Launching TCP @ {}:{}", host, port);
-                join_set.spawn(async move {
-                    if let Err(e) = run_tcp_server(&host, &port).await {
-                        error!("[TCP Server] Error: {}", e);
+            // Create JoinSet *inside* the LocalSet
+            let mut join_set = JoinSet::new();
+
+            for spec in specs {
+                match spec.transport {
+                    #[cfg(feature = "use-zmq")]
+                    TransportType::Zmq => {
+                        let bind_addr = spec.bind_addr.clone();
+                        info!(
+                            "[Server] Launch ZMQ Dispatcher @ {} (workers on demand)",
+                            bind_addr
+                        );
+
+                        // This is now correct
+                        join_set.spawn_local(async move {
+                            if let Err(e) = start_zmq_dispatcher(bind_addr).await {
+                                error!("[ZMQ Dispatcher] Error: {}", e);
+                            }
+                        });
                     }
-                });
-            }
-            #[cfg(feature = "use-udp")]
-            TransportType::Udp => {
-                let (host, port) = split_host_port(&spec.bind_addr);
-                info!("[Server] Launching UDP @ {}:{}", host, port);
-                join_set.spawn(async move {
-                    if let Err(e) = run_udp_server(&host, &port).await {
-                        error!("[UDP Server] Error: {}", e);
-                    }
-                });
-            }
-        }
-    }
+                    #[cfg(feature = "use-tcp")]
+                    TransportType::Tcp => {
+                        let (host, port) = split_host_port(&spec.bind_addr);
+                        info!(
+                            "[Server] Launch TCP Dispatcher @ {}:{} (workers on demand)",
+                            host, port
+                        );
 
-    // Wait for all servers to finish
-    while let Some(result) = join_set.join_next().await {
-        if let Err(e) = result {
-            error!("Server task error: {}", e);
-        }
-    }
+                        // This is now correct
+                        join_set.spawn_local(async move {
+                            if let Err(e) = start_tcp_dispatcher(host, port).await {
+                                error!("[TCP Dispatcher] Error: {}", e);
+                            }
+                        });
+                    }
+                    #[cfg(feature = "use-udp")]
+                    TransportType::Udp => {
+                        let (host, port) = split_host_port(&spec.bind_addr);
+                        info!(
+                            "[Server] Launch UDP Dispatcher @ {}:{} (workers on demand)",
+                            host, port
+                        );
+
+                        // This is now correct
+                        join_set.spawn_local(async move {
+                            if let Err(e) = start_udp_dispatcher(host, port).await {
+                                error!("[UDP Dispatcher] Error: {}", e);
+                            }
+                        });
+                    }
+                }
+            }
+
+            // Wait for all servers to finish
+            while let Some(result) = join_set.join_next().await {
+                if let Err(e) = result {
+                    error!("Server task error: {}", e);
+                }
+            }
+        })
+        .await;
 
     info!("[Server] All servers stopped");
     Ok(())
-}
-
-#[cfg(feature = "use-zmq")]
-async fn run_zmq_server(bind_addr: &str) -> Result<()> {
-    let mut server = MultiverseServer::new_zmq(bind_addr).await?;
-    server.start().await
-}
-
-#[cfg(feature = "use-tcp")]
-async fn run_tcp_server(host: &str, port: &str) -> Result<()> {
-    let mut server = MultiverseServer::new_tcp(host, port).await?;
-    server.start().await
-}
-
-#[cfg(feature = "use-udp")]
-async fn run_udp_server(host: &str, port: &str) -> Result<()> {
-    let mut server = MultiverseServer::new_udp(host, port).await?;
-    server.start().await
 }
