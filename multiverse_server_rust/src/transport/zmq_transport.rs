@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use parking_lot::Mutex;
 use tracing::{debug, error};
+use crate::utils::logging::{hexdump, ascii_preview, dump_payloads};
 
 #[allow(dead_code)]
 pub struct ZmqTransport {
@@ -90,6 +91,16 @@ impl Transport for ZmqTransport {
 
     async fn send(&mut self, data: &[u8], more: bool) -> Result<()> {
         let flags = if more { zmq::SNDMORE } else { 0 };
+
+        // --- Updated Debug Logging ---
+        debug!(
+            "[ZMQ] Sending {} bytes (more: {}): {}",
+            data.len(),
+            more,
+            ascii_preview(data, 64)
+        );
+        hexdump(data, 64);
+
         let socket = self.socket.lock();
         socket
             .send(data, flags)
@@ -102,12 +113,29 @@ impl Transport for ZmqTransport {
         let msg = socket.recv_msg(0).context("ZMQ recv failed")?;
         let len = msg.len().min(buf.len());
         buf[..len].copy_from_slice(&msg[..len]);
+
+        let received_data = &buf[..len];
+        debug!(
+            "[ZMQ] Received {} bytes: {}",
+            len,
+            ascii_preview(received_data, 64)
+        );
+        hexdump(received_data, 64);
         Ok(len)
     }
 
     async fn recv_text(&mut self) -> Result<String> {
         let socket = self.socket.lock();
         let msg = socket.recv_msg(0).context("ZMQ recv_text failed")?;
+
+        // --- Updated Debug Logging ---
+        debug!(
+            "[ZMQ] Received {} text bytes: {}",
+            msg.len(),
+            ascii_preview(&msg, 64)
+        );
+        hexdump(&msg, 64);
+
         String::from_utf8(msg.to_vec()).context("Invalid UTF-8 in message")
     }
 
@@ -123,7 +151,8 @@ impl Transport for ZmqTransport {
             }
         }
         drop(socket);
-        debug!("[ZMQ] Received {} parts", parts.len());
+        dump_payloads(&parts);
+
         Ok(parts)
     }
 }
