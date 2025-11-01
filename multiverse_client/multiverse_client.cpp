@@ -411,12 +411,20 @@ bool MultiverseClient::check_buffer_size() {
 }
 
 void MultiverseClient::init_buffer() {
-    send_buffer.buffer_double.data   = (double*)  calloc(send_buffer.buffer_double.size,   sizeof(double));
-    send_buffer.buffer_uint8_t.data  = (uint8_t*) calloc(send_buffer.buffer_uint8_t.size,  sizeof(uint8_t));
-    send_buffer.buffer_uint16_t.data = (uint16_t*)calloc(send_buffer.buffer_uint16_t.size, sizeof(uint16_t));
-    receive_buffer.buffer_double.data   = (double*)  calloc(receive_buffer.buffer_double.size,   sizeof(double));
-    receive_buffer.buffer_uint8_t.data  = (uint8_t*) calloc(receive_buffer.buffer_uint8_t.size,  sizeof(uint8_t));
-    receive_buffer.buffer_uint16_t.data = (uint16_t*)calloc(receive_buffer.buffer_uint16_t.size, sizeof(uint16_t));
+#define SAFE_CALLOC(count, type) \
+    ((count) > 0 ? (type*)calloc((count), sizeof(type)) : nullptr)
+
+    send_buffer.buffer_double.data   = SAFE_CALLOC(send_buffer.buffer_double.size, double);
+    send_buffer.buffer_uint8_t.data  = SAFE_CALLOC(send_buffer.buffer_uint8_t.size, uint8_t);
+    send_buffer.buffer_uint16_t.data = SAFE_CALLOC(send_buffer.buffer_uint16_t.size, uint16_t);
+    receive_buffer.buffer_double.data   = SAFE_CALLOC(receive_buffer.buffer_double.size, double);
+    receive_buffer.buffer_uint8_t.data  = SAFE_CALLOC(receive_buffer.buffer_uint8_t.size, uint8_t);
+    receive_buffer.buffer_uint16_t.data = SAFE_CALLOC(receive_buffer.buffer_uint16_t.size, uint16_t);
+
+    // Debug safety
+    if (send_buffer.buffer_double.size == 0) {
+        printf("[init_buffer] WARNING: send_buffer.buffer_double.size == 0 (no doubles allocated)\n");
+    }
 }
 
 bool MultiverseClient::communicate(const bool resend_request_meta_data) {

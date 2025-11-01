@@ -10,6 +10,7 @@
 #include <cmath>
 #include <limits>
 #include <json/json.h>
+#include <iomanip>
 
 #ifndef LOG_ERROR
 #define LOG_ERROR(x) std::cerr << "[ERROR] " << x << std::endl
@@ -181,19 +182,124 @@ public:
                          const double* data,
                          const size_t data_size)
     {
+        std::cout << "\n[DEBUG][set_object_pose] Processing object: " << obj << std::endl;
+
         auto it = send_objects_data.find(obj);
-        if (it == send_objects_data.end()) {
-            LOG_ERROR("Object '" << obj << "' not found in send_objects_data");
+        if (it == send_objects_data.end())
+        {
+            std::cerr << "[ERROR][set_object_pose] Object not found in send_objects_data: "
+                      << obj << std::endl;
             return;
         }
 
         auto &amap = it->second;
         auto ip = amap.find(attr);
 
-        if (ip != amap.end() && ip->second.size() == data_size)
-            for (size_t i = 0; i < data_size; ++i) *(ip->second[i]) = *(data+i);
+        std::cout << "[DEBUG][set_object_pose] Map entries for " << obj << ":" << std::endl;
+        for (auto &kv : amap)
+        {
+            std::cout << "    key=\"" << kv.first << "\" -> vector size="
+                      << kv.second.size() << std::endl;
+            for (size_t i = 0; i < kv.second.size(); ++i)
+            {
+                std::cout << "        [" << i << "] ptr=" << (void *)kv.second[i] << std::endl;
+            }
+        }
+
+        if (ip != amap.end())
+        {
+            std::cout << "[DEBUG][set_object_pose] Found 'position' vector, size="
+                      << ip->second.size() << std::endl;
+            if (ip->second.size() != 3)
+            {
+                std::cerr << "[WARN][set_object_pose] Expected 3 position elements, got "
+                          << ip->second.size() << std::endl;
+            }
+
+            for (size_t i = 0; i < ip->second.size(); ++i)
+            {
+                double *ptr = ip->second[i];
+                std::cout << "    -> position[" << i << "] ptr=" << (void *)ptr << std::endl;
+
+                if (!ptr)
+                {
+                    std::cerr << "[ERROR][set_object_pose] Null pointer for position[" << i
+                              << "] in " << obj << std::endl;
+                    continue;
+                }
+
+                if ((uintptr_t)ptr < 0x10000)
+                {
+                    std::cerr << "[ERROR][set_object_pose] Invalid pointer (too low address): "
+                              << ptr << std::endl;
+                    continue;
+                }
+
+                *ptr = pos[i];
+                std::cout << "[DEBUG][set_object_pose] position[" << i
+                          << "] <- " << pos[i] << std::endl;
+            }
+        }
         else
-            LOG_ERROR("Attribute '" << attr << "' not found in send_objects_data['" << obj << "'] or size mismatch");
+        {
+            std::cerr << "[WARN][set_object_pose] 'position' not found for object "
+                      << obj << std::endl;
+        }
+
+        if (iq != amap.end())
+        {
+            std::cout << "[DEBUG][set_object_pose] Found 'quaternion' vector, size="
+                      << iq->second.size() << std::endl;
+            if (iq->second.size() != 4)
+            {
+                std::cerr << "[WARN][set_object_pose] Expected 4 quaternion elements, got "
+                          << iq->second.size() << std::endl;
+            }
+
+            for (size_t i = 0; i < iq->second.size(); ++i)
+            {
+                double *ptr = iq->second[i];
+                std::cout << "    -> quaternion[" << i << "] ptr=" << (void *)ptr << std::endl;
+
+                if (!ptr)
+                {
+                    std::cerr << "[ERROR][set_object_pose] Null pointer for quaternion[" << i
+                              << "] in " << obj << std::endl;
+                    continue;
+                }
+
+                if ((uintptr_t)ptr < 0x10000)
+                {
+                    std::cerr << "[ERROR][set_object_pose] Invalid pointer (too low address): "
+                              << ptr << std::endl;
+                    continue;
+                }
+
+                *ptr = quat[i];
+                std::cout << "[DEBUG][set_object_pose] quaternion[" << i
+                          << "] <- " << quat[i] << std::endl;
+            }
+        }
+        else
+        {
+            std::cerr << "[WARN][set_object_pose] 'quaternion' not found for object "
+                      << obj << std::endl;
+        }
+
+        using clock = std::chrono::steady_clock;
+        static auto last = clock::now();
+        auto now = clock::now();
+        if (now - last >= std::chrono::milliseconds(250))
+        {
+            last = now;
+            std::cout << std::fixed << std::setprecision(3);
+            std::cout << "[pose->send] " << obj
+                      << "  pos=[" << pos[0] << ", " << pos[1] << ", " << pos[2] << "]"
+                      << "  quat=[" << quat[0] << ", " << quat[1] << ", " << quat[2] << ", "
+                      << quat[3] << "]" << std::endl;
+        }
+
+        std::cout << "[DEBUG][set_object_pose] Done processing " << obj << "\n";
     }
 
     void log_receive_snapshot(std::chrono::milliseconds every = std::chrono::milliseconds(250)) const {
@@ -280,32 +386,53 @@ private:
         accept(response_meta_data_json["receive"], receive_objects);
     }
 
-    void init_send_and_receive_data() override {
+    void init_send_and_receive_data() override
+    {
+        if (!send_buffer.buffer_double.data || send_buffer.buffer_double.size == 0 ||
+            !receive_buffer.buffer_double.data || receive_buffer.buffer_double.size == 0)
+        {
+            std::cerr << "[ERROR] Buffers not initialized or size == 0\n";
+            return;
+        }
+
         double *sp = send_buffer.buffer_double.data;
-        for (const auto& so : send_objects) {
+        for (const auto &so : send_objects)
+        {
             auto &mp = send_objects_data[so.first];
-            for (const auto& attr : so.second) {
+            for (const auto &attr : so.second)
+            {
                 auto &vec = mp[attr];
                 vec.clear();
-                size_t n = 0;
-                if (auto it=attribute_map_double.find(attr); it!=attribute_map_double.end())
-                    n = it->second;
-                for (size_t i=0;i<n;i++) vec.emplace_back(sp++);
+                size_t n = attribute_map_double.count(attr) ? attribute_map_double.at(attr) : 0;
+                for (size_t i = 0; i < n; i++)
+                    vec.emplace_back(sp++);
             }
         }
 
+        if (auto it = send_objects_data.find("knob"); it != send_objects_data.end())
+        {
+            auto jt = it->second.find("cmd_joint_rvalue");
+            if (jt != it->second.end() && !jt->second.empty())
+                knob_ptr_ = jt->second[0];
+        }
+
         double *rp = receive_buffer.buffer_double.data;
-        for (const auto& ro : receive_objects) {
+        for (const auto &ro : receive_objects)
+        {
             auto &mp = receive_objects_data[ro.first];
-            for (const auto& attr : ro.second) {
+            for (const auto &attr : ro.second)
+            {
                 auto &vec = mp[attr];
                 vec.clear();
-                size_t n = 0;
-                if (auto it=attribute_map_double.find(attr); it!=attribute_map_double.end())
-                    n = it->second;
-                for (size_t i=0;i<n;i++) vec.emplace_back(rp++);
+                size_t n = attribute_map_double.count(attr) ? attribute_map_double.at(attr) : 0;
+                for (size_t i = 0; i < n; i++)
+                    vec.emplace_back(rp++);
             }
         }
+
+        std::cout << "[init_send_and_receive_data] send_buffer size="
+                  << send_buffer.buffer_double.size << " receive_buffer size="
+                  << receive_buffer.buffer_double.size << "\n";
     }
 
     void bind_send_data() override {

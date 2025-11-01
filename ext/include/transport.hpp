@@ -157,15 +157,21 @@ public:
     }
     void send(const void *data, size_t len, bool more) override
     {
+        mv_log("[zmq] send: %zu bytes%s", len, more ? " (more...)" : "");
+        mv_log("  preview: \"%s\"", ascii_preview_(data, len).c_str());
+        mv_hexdump(data, len, 64);
         if (zmq_send(sock_, data, len, more ? ZMQ_SNDMORE : 0) < 0)
         {
             throw std::runtime_error("ZMQ send failed: " + std::string(zmq_strerror(zmq_errno())));
         }
     }
+
     void send_text(const std::string &s, bool more) override
     {
+        mv_log("[zmq] send_text: \"%s\"%s", s.c_str(), more ? " (more...)" : "");
         send(s.data(), s.size(), more);
     }
+
     void recv(void *data, size_t len) override
     {
         int rc = zmq_recv(sock_, data, len, 0);
@@ -173,21 +179,27 @@ public:
         {
             throw std::runtime_error("ZMQ recv failed: " + std::string(zmq_strerror(zmq_errno())));
         }
+        mv_log("[zmq] recv: %d bytes", rc);
+        mv_log("  preview: \"%s\"", ascii_preview_(data, rc).c_str());
+        mv_hexdump(data, rc, 64);
         if (static_cast<size_t>(rc) != len)
         {
             throw std::runtime_error("ZMQ recv: size mismatch");
         }
     }
+
     std::string recv_text() override
     {
         zmq_msg_t msg;
         zmq_msg_init(&msg);
-        if (zmq_msg_recv(&msg, sock_, 0) < 0)
+        int rc = zmq_msg_recv(&msg, sock_, 0);
+        if (rc < 0)
         {
             zmq_msg_close(&msg);
             throw std::runtime_error("ZMQ recv_text failed: " + std::string(zmq_strerror(zmq_errno())));
         }
         std::string out(static_cast<char *>(zmq_msg_data(&msg)), zmq_msg_size(&msg));
+        mv_log("[zmq] recv_text: %zu bytes \"%s\"", out.size(), ascii_preview_(out.data(), out.size()).c_str());
         zmq_msg_close(&msg);
         return out;
     }
@@ -203,6 +215,9 @@ public:
         parts.reserve(msgs.size());
         for (auto &m : msgs)
             parts.emplace_back(m.to_string());
+
+        mv_log("[zmq] recv_multipart: %zu part(s)", parts.size());
+        mv_dump_parts(parts);
         return true;
     }
     void *raw_socket() const { return sock_; }

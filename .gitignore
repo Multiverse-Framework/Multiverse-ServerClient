@@ -1,3 +1,6 @@
 .vscode
 ext/msys2
 *.o
+**/target/**
+**/Cargo.lock
+

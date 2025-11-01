@@ -91,26 +91,42 @@ inline bool send_parts(socket_t fd, const std::vector<std::string>& parts) {
 inline bool recv_parts(socket_t fd, std::vector<std::string>& out) {
     out.clear();
     uint32_t num_parts = 0;
+
+    mv_log("[rawtcp] Handshake: Waiting to read part count (4 bytes)...");
     if (!read_full(fd, &num_parts, sizeof(num_parts))) {
         mv_log("[rawtcp] Failed to read part count.");
         return false;
     }
+    mv_log("[rawtcp] Handshake: Read part count: %u", num_parts);
 
     out.reserve(num_parts);
     for (uint32_t i = 0; i < num_parts; ++i) {
         uint32_t sz = 0;
+
+        mv_log("[rawtcp] Handshake: Waiting to read size for part %u (4 bytes)...", i);
         if (!read_full(fd, &sz, sizeof(sz))) {
             mv_log("[rawtcp] Failed to read size for part %u.", i);
             return false;
         }
+        mv_log("[rawtcp] Handshake: Read size for part %u: %u", i, sz);
 
         std::string s(sz, '\0');
-        if (sz > 0 && !read_full(fd, &s[0], sz)) {
-            mv_log("[rawtcp] Failed to read %u bytes for part %u.", sz, i);
-            return false;
+        if (sz > 0) {
+            mv_log("[rawtcp] Handshake: Waiting to read %u bytes for part %u...", sz, i);
+            if (!read_full(fd, &s[0], sz)) {
+                mv_log("[rawtcp] Failed to read %u bytes for part %u.", sz, i);
+                return false;
+            }
+            // Log the received data (as a string)
+            mv_log("[rawtcp] Handshake: Read data for part %u: \"%s\"", i, s.c_str());
+        } else {
+             mv_log("[rawtcp] Handshake: Part %u is zero size, skipping read.", i);
         }
+        
         out.push_back(std::move(s));
     }
+    
+    mv_log("[rawtcp] Handshake: Successfully received all %u parts.", num_parts);
     return true;
 }
 
