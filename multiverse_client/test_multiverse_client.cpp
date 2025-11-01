@@ -458,8 +458,11 @@ int main(int argc, char** argv) {
         return 3;
     }
 
-    auto mode = (args.mode=="sender") ? MyConnector::Mode::Sender
-                                      : MyConnector::Mode::Receiver;
+    auto mode = (args.mode == "sender" ? MyConnector::Mode::Sender :
+                 (args.mode == "receiver" ? MyConnector::Mode::Receiver :
+                  (args.mode == "both1" ? MyConnector::Mode::Both1 :
+                   (args.mode == "both2" ? MyConnector::Mode::Both2 :
+                    MyConnector::Mode::Sender))));
 
     TransportType tt = TransportType::Tcp;
 #if USE_ZMQ
@@ -492,7 +495,7 @@ int main(int argc, char** argv) {
     my_connector.start();
 
     while (!g_exit.load()) {
-        if (mode == MyConnector::Mode::Receiver) {
+        if (mode != MyConnector::Mode::Sender) {
             my_connector.log_receive_snapshot();
             // const auto& rod = my_connector.receive_map();
             // auto it1 = rod.find("object1");
