@@ -6,50 +6,8 @@ use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
-
-// Inline TCP protocol functions
-async fn send_parts(stream: &mut TcpStream, parts: &[Vec<u8>]) -> Result<()> {
-    use tokio::io::AsyncWriteExt;
-    
-    let num_parts = parts.len() as u32;
-    stream.write_all(&num_parts.to_be_bytes()).await?;
-
-    for part in parts {
-        let size = part.len() as u32;
-        stream.write_all(&size.to_be_bytes()).await?;
-        if !part.is_empty() {
-            stream.write_all(part).await?;
-        }
-    }
-
-    stream.flush().await?;
-    Ok(())
-}
-
-async fn recv_parts(stream: &mut TcpStream) -> Result<Vec<Vec<u8>>> {
-    use tokio::io::AsyncReadExt;
-    
-    let mut buf = [0u8; 4];
-    stream.read_exact(&mut buf).await?;
-    let num_parts = u32::from_be_bytes(buf);
-
-    let mut parts = Vec::with_capacity(num_parts as usize);
-
-    for i in 0..num_parts {
-        stream.read_exact(&mut buf).await
-            .with_context(|| format!("Failed to read size for part {}", i))?;
-        let size = u32::from_be_bytes(buf);
-
-        let mut data = vec![0u8; size as usize];
-        if size > 0 {
-            stream.read_exact(&mut data).await
-                .with_context(|| format!("Failed to read data for part {}", i))?;
-        }
-        parts.push(data);
-    }
-
-    Ok(parts)
-}
+use crate::utils::logging::hexdump;
+use crate::protocol::raw_tcp;
 
 enum Mode {
     Idle,
@@ -86,8 +44,10 @@ impl TcpTransport {
             return Ok(());
         }
 
+        debug!("[TCP Transport] Flushing {} parts as one message.", self.out_parts.len());
+
         let stream = self.stream.as_mut().context("Not connected")?;
-        send_parts(stream, &self.out_parts).await?;
+        raw_tcp::send_parts(stream, &self.out_parts).await?;
         self.out_parts.clear();
         Ok(())
     }
@@ -100,8 +60,10 @@ impl TcpTransport {
         self.in_parts.clear();
         self.in_next = 0;
 
+        debug!("[TCP Transport] Waiting for next message from peer...");
+
         let stream = self.stream.as_mut().context("Not connected")?;
-        self.in_parts = recv_parts(stream).await?;
+        self.in_parts = raw_tcp::recv_parts(stream).await?;
         Ok(())
     }
 }
@@ -200,6 +162,9 @@ impl Transport for TcpTransport {
     }
 
     async fn send(&mut self, data: &[u8], more: bool) -> Result<()> {
+        debug!("[TCP Transport] Adding part to send queue ({} bytes, more: {})", data.len(), more);
+        hexdump(data, 64);
+        
         self.out_parts.push(data.to_vec());
         if !more {
             self.flush_out_parts().await?;

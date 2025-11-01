@@ -5,84 +5,8 @@ use async_trait::async_trait;
 use std::net::SocketAddr;
 use tokio::net::UdpSocket;
 use tracing::{debug, info};
-
-const MAX_UDP_PAYLOAD: usize = 1200;
-
-// Inline UDP protocol functions
-fn encode_parts(parts: &[Vec<u8>]) -> Result<Vec<u8>> {
-    let num_parts = parts.len() as u32;
-    let mut needed = 4;
-    for part in parts {
-        needed += 4 + part.len();
-    }
-    if needed > MAX_UDP_PAYLOAD {
-        anyhow::bail!("Payload {} exceeds max {}", needed, MAX_UDP_PAYLOAD);
-    }
-    let mut buf = Vec::with_capacity(needed);
-    buf.extend_from_slice(&num_parts.to_be_bytes());
-    for part in parts {
-        let size = part.len() as u32;
-        buf.extend_from_slice(&size.to_be_bytes());
-        buf.extend_from_slice(part);
-    }
-    Ok(buf)
-}
-
-fn decode_parts(data: &[u8]) -> Result<Vec<Vec<u8>>> {
-    if data.len() < 4 {
-        anyhow::bail!("Packet too small");
-    }
-    let mut offset = 0;
-    let num_parts = u32::from_be_bytes([data[0], data[1], data[2], data[3]]);
-    offset += 4;
-    let mut parts = Vec::with_capacity(num_parts as usize);
-    for i in 0..num_parts {
-        if offset + 4 > data.len() {
-            anyhow::bail!("Failed to read size for part {}", i);
-        }
-        let size = u32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]);
-        offset += 4;
-        if offset + size as usize > data.len() {
-            anyhow::bail!("Truncated data for part {}", i);
-        }
-        let part = data[offset..offset + size as usize].to_vec();
-        parts.push(part);
-        offset += size as usize;
-    }
-    Ok(parts)
-}
-
-async fn send_parts_udp(socket: &UdpSocket, parts: &[Vec<u8>], peer: Option<&SocketAddr>) -> Result<()> {
-    let packet = encode_parts(parts)?;
-    let sent = if let Some(addr) = peer {
-        socket.send_to(&packet, addr).await?
-    } else {
-        socket.send(&packet).await?
-    };
-    if sent != packet.len() {
-        anyhow::bail!("UDP send partial: {}/{}", sent, packet.len());
-    }
-    Ok(())
-}
-
-async fn recv_parts_udp(socket: &UdpSocket) -> Result<Vec<Vec<u8>>> {
-    let mut buf = vec![0u8; MAX_UDP_PAYLOAD];
-    let n = socket.recv(&mut buf).await?;
-    if n == 0 {
-        anyhow::bail!("Socket closed");
-    }
-    decode_parts(&buf[..n])
-}
-
-async fn recv_parts_from_udp(socket: &UdpSocket) -> Result<(Vec<Vec<u8>>, SocketAddr)> {
-    let mut buf = vec![0u8; MAX_UDP_PAYLOAD];
-    let (n, sender) = socket.recv_from(&mut buf).await?;
-    if n == 0 {
-        anyhow::bail!("Socket closed");
-    }
-    let parts = decode_parts(&buf[..n])?;
-    Ok((parts, sender))
-}
+use crate::protocol::raw_udp; 
+use crate::utils::logging::hexdump;
 
 enum Mode {
     Idle,
@@ -120,7 +44,8 @@ impl UdpTransport {
         }
 
         let socket = self.socket.as_ref().context("No socket")?;
-        send_parts_udp(socket, &self.out_parts, self.peer.as_ref()).await?;
+        debug!("[UDP Transport] Flushing {} parts as one packet.", self.out_parts.len());
+        raw_udp::send_parts(socket, &self.out_parts, self.peer.as_ref()).await?;
         self.out_parts.clear();
         Ok(())
     }
@@ -136,9 +61,11 @@ impl UdpTransport {
         let socket = self.socket.as_ref().context("No socket")?;
 
         if self.peer.is_some() {
-            self.in_parts = recv_parts_udp(socket).await?;
+            debug!("[UDP Transport] Waiting for packet from connected peer...");
+            self.in_parts = raw_udp::recv_parts(socket).await?;
         } else {
-            let (parts, sender) = recv_parts_from_udp(socket).await?;
+            debug!("[UDP Transport] Waiting for packet from any peer...");
+            let (parts, sender) = raw_udp::recv_parts_from(socket).await?;
             self.peer = Some(sender);
             self.in_parts = parts;
             self.endpoint = Some(sender.to_string());
@@ -210,6 +137,8 @@ impl Transport for UdpTransport {
     }
 
     async fn send(&mut self, data: &[u8], more: bool) -> Result<()> {
+        debug!("[UDP Transport] Adding part to send queue ({} bytes, more: {})", data.len(), more);
+        hexdump(data, 64);
         self.out_parts.push(data.to_vec());
         if !more {
             self.flush_out_parts().await?;

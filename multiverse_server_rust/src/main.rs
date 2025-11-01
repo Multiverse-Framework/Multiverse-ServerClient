@@ -4,10 +4,9 @@ use multiverse_server_rs::dispatcher::{
     start_tcp_dispatcher, start_udp_dispatcher, start_zmq_dispatcher
 };
 use multiverse_server_rs::transport::TransportType;
-use multiverse_server_rs::utils::{set_shutdown, should_shutdown};
-// std::sync::atomic and Arc are no longer needed here
+use multiverse_server_rs::utils::set_shutdown;
 use tokio::signal;
-use tokio::task::{JoinSet, LocalSet}; // Import LocalSet
+use tokio::task::{JoinSet, LocalSet};
 use tracing::{error, info};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -117,8 +116,6 @@ fn split_host_port(bind: &str) -> (String, String) {
 //
 // --- Main Function ---
 //
-// Use a single-threaded "current_thread" runtime.
-// This is REQUIRED because all dispatchers use tokio::task::spawn_local.
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     // Initialize tracing
@@ -155,19 +152,12 @@ async fn main() -> Result<()> {
     }
 
     // --- Task Spawning ---
-    // We use a LocalSet to spawn !Send tasks (our dispatchers)
-    // on the current_thread runtime.
     let local_set = LocalSet::new();
 
     // Run the LocalSet until all tasks are complete
     local_set
         .run_until(async move {
-            //
-            // --- ALL SPAWNING MUST HAPPEN *INSIDE* run_until ---
-            //
-
             // Setup signal handler
-            // Use tokio::task::spawn_local since we are in a LocalSet
             tokio::task::spawn_local(async move {
                 if let Err(e) = signal::ctrl_c().await {
                     error!("Failed to listen for Ctrl+C: {}", e);
@@ -190,7 +180,6 @@ async fn main() -> Result<()> {
                             bind_addr
                         );
 
-                        // This is now correct
                         join_set.spawn_local(async move {
                             if let Err(e) = start_zmq_dispatcher(bind_addr).await {
                                 error!("[ZMQ Dispatcher] Error: {}", e);
@@ -205,7 +194,6 @@ async fn main() -> Result<()> {
                             host, port
                         );
 
-                        // This is now correct
                         join_set.spawn_local(async move {
                             if let Err(e) = start_tcp_dispatcher(host, port).await {
                                 error!("[TCP Dispatcher] Error: {}", e);
@@ -220,7 +208,6 @@ async fn main() -> Result<()> {
                             host, port
                         );
 
-                        // This is now correct
                         join_set.spawn_local(async move {
                             if let Err(e) = start_udp_dispatcher(host, port).await {
                                 error!("[UDP Dispatcher] Error: {}", e);

@@ -7,11 +7,9 @@ const MAX_UDP_PAYLOAD: usize = 1200;
 
 /// Encode parts into a contiguous buffer for UDP transmission
 /// Layout: [part_count: u32][size1: u32][data1]...[sizeN: u32][dataN]
-/// All u32 fields use network byte order (big-endian)
+/// All u32 fields use local (little-endian) byte order
 pub fn encode_parts(parts: &[Vec<u8>]) -> Result<Vec<u8>> {
     let num_parts = parts.len() as u32;
-    
-    // Calculate needed size
     let mut needed = 4; // part_count
     for part in parts {
         needed += 4; // size
@@ -29,12 +27,12 @@ pub fn encode_parts(parts: &[Vec<u8>]) -> Result<Vec<u8>> {
     let mut buf = Vec::with_capacity(needed);
 
     // Write part count
-    buf.extend_from_slice(&num_parts.to_be_bytes());
+    buf.extend_from_slice(&num_parts.to_le_bytes());
 
     // Write each part
     for part in parts {
         let size = part.len() as u32;
-        buf.extend_from_slice(&size.to_be_bytes());
+        buf.extend_from_slice(&size.to_le_bytes());
         buf.extend_from_slice(part);
     }
 
@@ -50,7 +48,7 @@ pub fn decode_parts(data: &[u8]) -> Result<Vec<Vec<u8>>> {
     let mut offset = 0;
 
     // Read part count
-    let num_parts = u32::from_be_bytes([data[0], data[1], data[2], data[3]]);
+    let num_parts = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
     offset += 4;
 
     let mut parts = Vec::with_capacity(num_parts as usize);
@@ -60,7 +58,7 @@ pub fn decode_parts(data: &[u8]) -> Result<Vec<Vec<u8>>> {
             anyhow::bail!("Failed to read size for part {}", i);
         }
 
-        let size = u32::from_be_bytes([
+        let size = u32::from_le_bytes([
             data[offset],
             data[offset + 1],
             data[offset + 2],

@@ -1,122 +1,18 @@
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
-// use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, error, info, warn};
-use std::thread::JoinHandle as StdJoinHandle; // Use standard thread JoinHandle
-use tokio::runtime::Builder; // Need the runtime Builder
+use std::thread::JoinHandle as StdJoinHandle;
+use tokio::runtime::Builder;
 
 use crate::server::MultiverseServer;
 use crate::utils::should_shutdown;
+use crate::protocol::{raw_tcp, raw_udp};
 
-/// Multipart message protocol for handshake
-pub mod protocol {
-    use anyhow::Result;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-    /// Send multipart message over TCP
-    pub async fn send_parts_tcp<W>(writer: &mut W, parts: &[Vec<u8>]) -> Result<()>
-    where
-        W: AsyncWriteExt + Unpin,
-    {
-        let num_parts = parts.len() as u32;
-        writer.write_all(&num_parts.to_be_bytes()).await?;
-
-        for part in parts {
-            let size = part.len() as u32;
-            writer.write_all(&size.to_be_bytes()).await?;
-            if size > 0 {
-                writer.write_all(part).await?;
-            }
-        }
-        writer.flush().await?;
-        Ok(())
-    }
-
-    /// Receive multipart message over TCP
-    pub async fn recv_parts_tcp<R>(reader: &mut R) -> Result<Vec<Vec<u8>>>
-    where
-        R: AsyncReadExt + Unpin,
-    {
-        let mut num_parts_buf = [0u8; 4];
-        reader.read_exact(&mut num_parts_buf).await?;
-        let num_parts = u32::from_be_bytes(num_parts_buf);
-
-        let mut parts = Vec::with_capacity(num_parts as usize);
-        for _ in 0..num_parts {
-            let mut size_buf = [0u8; 4];
-            reader.read_exact(&mut size_buf).await?;
-            let size = u32::from_be_bytes(size_buf) as usize;
-
-            let mut data = vec![0u8; size];
-            if size > 0 {
-                reader.read_exact(&mut data).await?;
-            }
-            parts.push(data);
-        }
-        Ok(parts)
-    }
-
-    /// Encode multipart message for UDP
-    pub fn encode_parts_udp(parts: &[Vec<u8>]) -> Result<Vec<u8>> {
-        const MAX_UDP_PAYLOAD: usize = 1200;
-
-        let mut buf = Vec::new();
-        let num_parts = parts.len() as u32;
-        buf.extend_from_slice(&num_parts.to_be_bytes());
-
-        for part in parts {
-            let size = part.len() as u32;
-            buf.extend_from_slice(&size.to_be_bytes());
-            buf.extend_from_slice(part);
-        }
-
-        if buf.len() > MAX_UDP_PAYLOAD {
-            anyhow::bail!(
-                "Encoded payload {} exceeds MAX_UDP_PAYLOAD={}",
-                buf.len(),
-                MAX_UDP_PAYLOAD
-            );
-        }
-
-        Ok(buf)
-    }
-
-    /// Decode UDP multipart message
-    pub fn decode_parts_udp(buf: &[u8]) -> Result<Vec<Vec<u8>>> {
-        if buf.len() < 4 {
-            anyhow::bail!("Packet too small");
-        }
-
-        let mut pos = 0;
-        let num_parts = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize;
-        pos += 4;
-
-        let mut parts = Vec::with_capacity(num_parts);
-        for _ in 0..num_parts {
-            if pos + 4 > buf.len() {
-                anyhow::bail!("Truncated size field");
-            }
-            let size = u32::from_be_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]])
-                as usize;
-            pos += 4;
-
-            if pos + size > buf.len() {
-                anyhow::bail!("Truncated data");
-            }
-            parts.push(buf[pos..pos + size].to_vec());
-            pos += size;
-        }
-
-        Ok(parts)
-    }
-}
-
-/// TCP Dispatcher - listens for handshake requests and spawns workers
 pub async fn start_tcp_dispatcher(host: String, port: String) -> Result<()> {
     let addr = format!("{}:{}", host, port);
     let listener = TcpListener::bind(&addr)
@@ -155,7 +51,8 @@ pub async fn start_tcp_dispatcher(host: String, port: String) -> Result<()> {
         let host_clone = host.clone();
         let port_base: u16 = port.parse().unwrap_or(7000);
 
-        tokio::spawn(async move {
+        // --- Use spawn_local ---
+        tokio::task::spawn_local(async move {
             if let Err(e) =
                 handle_tcp_handshake(stream, workers_clone, host_clone, port_base).await
             {
@@ -183,10 +80,32 @@ async fn handle_tcp_handshake(
     host: String,
     port_base: u16,
 ) -> Result<()> {
-    // Receive handshake request
-    let parts = protocol::recv_parts_tcp(&mut stream).await?;
+    let parts = match raw_tcp::recv_parts(&mut stream).await {
+        Ok(parts) => parts,
+        Err(e) => {
+            // Check if the error is an IO error related to client disconnect
+            if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
+                match io_err.kind() {
+                    std::io::ErrorKind::UnexpectedEof => {
+                        debug!(
+                            "[Server-TCP] Handshake failed: client disconnected early (early eof)."
+                        );
+                        return Ok(()); // Not a server error, just a bad client.
+                    }
+                    std::io::ErrorKind::ConnectionReset => {
+                        debug!("[Server-TCP] Handshake failed: client reset connection.");
+                        return Ok(()); // Not a server error.
+                    }
+                    _ => {} 
+                }
+            }
+            // For other errors, or non-IO errors, bubble them up.
+            return Err(e).context("Handshake recv_parts_tcp failed");
+        }
+    };
 
     if parts.is_empty() || parts[0].is_empty() {
+        warn!("[Server-TCP] Handshake error: Empty handshake request.");
         anyhow::bail!("Empty handshake request");
     }
 
@@ -229,7 +148,8 @@ async fn handle_tcp_handshake(
 
     // Send response with worker address
     let response = vec![worker_addr.as_bytes().to_vec()];
-    protocol::send_parts_tcp(&mut stream, &response).await?;
+    // --- UPDATED CALL ---
+    raw_tcp::send_parts(&mut stream, &response).await?;
 
     debug!("[Server-TCP] Handshake complete for {}", worker_addr);
     Ok(())
@@ -284,7 +204,8 @@ pub async fn start_udp_dispatcher(host: String, port: String) -> Result<()> {
         };
 
         // Handle handshake
-        let parts = match protocol::decode_parts_udp(&buf[..size]) {
+        // --- UPDATED CALL ---
+        let parts = match raw_udp::decode_parts(&buf[..size]) {
             Ok(parts) => parts,
             Err(e) => {
                 error!("[Server-UDP] Failed to decode handshake: {}", e);
@@ -326,8 +247,8 @@ pub async fn start_udp_dispatcher(host: String, port: String) -> Result<()> {
             let handle = tokio::task::spawn_local(async move {
                 if let Err(e) = run_udp_worker(&worker_host, &worker_port_str).await {
                     error!(
-                        "[Server-UDP-Worker] Error on {}:{}: {}",
-                        worker_host, worker_port_str, e
+                        "[Server-UDP-Worker] Error on {}: {}",
+                        worker_addr_clone, e
                     );
                 }
             });
@@ -343,7 +264,8 @@ pub async fn start_udp_dispatcher(host: String, port: String) -> Result<()> {
 
         // Send response with worker address
         let response = vec![worker_addr.as_bytes().to_vec()];
-        if let Ok(encoded) = protocol::encode_parts_udp(&response) {
+        // --- UPDATED CALL ---
+        if let Ok(encoded) = raw_udp::encode_parts(&response) {
             if let Err(e) = socket.send_to(&encoded, client_addr).await {
                 error!("[Server-UDP] Failed to send handshake response: {}", e);
             }
@@ -380,8 +302,6 @@ async fn run_udp_worker(host: &str, port: &str) -> Result<()> {
 //
 
 pub async fn start_zmq_dispatcher(bind_addr: String) -> Result<()> {
-    // This dispatcher will manage its own threads.
-    // We use std::sync::Mutex and std::thread::JoinHandle
     let workers: Arc<std::sync::Mutex<HashMap<String, StdJoinHandle<()>>>> =
         Arc::new(std::sync::Mutex::new(HashMap::new()));
 

@@ -41,9 +41,6 @@ lazy_static::lazy_static! {
         default_rhs.insert("rhs".to_string(), vec![1.0; 4]); // Max default size (quaternion)
         default_rhs.insert("lhs".to_string(), vec![1.0; 4]); // Assume 1.0 for simplicity
 
-        // In a real implementation, each attribute would have its specific LHS/RHS scale vector.
-        // For this example, we'll use a default that covers most cases.
-        // We need to initialize all attributes from data_types.rs
         let mut all_attrs = init_attribute_map_double();
         all_attrs.insert("joint_position".to_string(), (Attribute::JointPosition, vec![f64::NAN]));
         all_attrs.insert("joint_quaternion".to_string(), (Attribute::JointQuaternion, vec![f64::NAN; 4]));
@@ -56,7 +53,6 @@ lazy_static::lazy_static! {
         all_attrs.insert("cmd_joint_force".to_string(), (Attribute::CmdJointForce, vec![f64::NAN]));
         all_attrs.insert("cmd_joint_torque".to_string(), (Attribute::CmdJointTorque, vec![f64::NAN]));
         
-        // FIX: Add missing attributes that were causing the unwrap panic
         all_attrs.insert(
             "joint_linear_acceleration".to_string(),
             (Attribute::JointLinearAcceleration, vec![f64::NAN]),
@@ -72,8 +68,6 @@ lazy_static::lazy_static! {
             let size = default_vec.len();
             scales.insert("rhs".to_string(), vec![1.0; size]);
 
-            // Example: Invert Y/Z for position/velocity/accel, invert Y/Z axes for quat/ang_vel
-            // This is a simplified example. A real one would be more complex.
             let lhs_scale = if attr == Attribute::OdometricVelocity {
                 vec![1.0, -1.0, 1.0, -1.0, 1.0, -1.0] // x, -y, z, -rx, ry, -rz
             } else {
@@ -118,7 +112,6 @@ pub struct MultiverseServer {
     continue_state: bool,
 }
 
-/// Helper to merge "send" and "receive" attributes during a simulation hand-off
 fn merge_json_attributes(
     target_sim_json: &mut Value,
     request_json: &Value,
@@ -133,7 +126,6 @@ fn merge_json_attributes(
     if let Some(request_map) = request_json.get(key).and_then(|v| v.as_object()) {
         for (obj_name, req_attrs) in request_map {
             if req_attrs.is_null() || req_attrs.as_array().map_or(false, |a| a.is_empty()) {
-                // Request to register object with all attributes
                 if !target_map.contains_key(obj_name) {
                     target_map.insert(obj_name.clone(), json!([]));
                 }
@@ -482,8 +474,6 @@ impl MultiverseServer {
     }
 
     fn copy_buffer_data(&mut self, _data: &[u8]) -> Result<()> {
-        // Simplified buffer copying logic
-        // In real implementation, this would determine buffer type and copy appropriately
         Ok(())
     }
 
@@ -680,7 +670,6 @@ impl MultiverseServer {
 
         // --- Populate Double Conversion Map ---
         let mut all_double_attrs = init_attribute_map_double();
-        // Add attributes missing from init_attribute_map_double but in C++
         all_double_attrs.insert("joint_position".to_string(), (Attribute::JointPosition, vec![f64::NAN]));
         all_double_attrs.insert("joint_quaternion".to_string(), (Attribute::JointQuaternion, vec![f64::NAN; 4]));
         all_double_attrs.insert("cmd_joint_linear_position".to_string(), (Attribute::CmdJointLinearPosition, vec![f64::NAN]));
@@ -692,7 +681,6 @@ impl MultiverseServer {
         all_double_attrs.insert("cmd_joint_force".to_string(), (Attribute::CmdJointForce, vec![f64::NAN]));
         all_double_attrs.insert("cmd_joint_torque".to_string(), (Attribute::CmdJointTorque, vec![f64::NAN]));
         
-        // --- FIX: Add missing attributes ---
         all_double_attrs.insert(
             "joint_linear_acceleration".to_string(),
             (Attribute::JointLinearAcceleration, vec![f64::NAN]),
@@ -701,7 +689,6 @@ impl MultiverseServer {
             "joint_angular_acceleration".to_string(),
             (Attribute::JointAngularAcceleration, vec![f64::NAN]),
         );
-        // --- End Fix ---
         
         for (_, (attr, default_vec)) in all_double_attrs {
             self.conversion_map
@@ -732,7 +719,6 @@ impl MultiverseServer {
         cmap.get_mut(&Attribute::Force).unwrap().fill(scale_m * scale_l / (scale_t * scale_t));
         cmap.get_mut(&Attribute::Torque).unwrap().fill(scale_m * scale_l * scale_l / (scale_t * scale_t));
 
-        // Copy command attributes
         cmap.insert(Attribute::CmdJointAngularPosition, cmap[&Attribute::JointAngularPosition].clone());
         cmap.insert(Attribute::CmdJointLinearPosition, cmap[&Attribute::JointLinearPosition].clone());
         cmap.insert(Attribute::CmdJointLinearVelocity, cmap[&Attribute::JointLinearVelocity].clone());
@@ -742,12 +728,10 @@ impl MultiverseServer {
         cmap.insert(Attribute::CmdJointForce, cmap[&Attribute::Force].clone());
         cmap.insert(Attribute::CmdJointTorque, cmap[&Attribute::Torque].clone());
 
-        // Odometric velocity
         let odom_vel = cmap.get_mut(&Attribute::OdometricVelocity).unwrap();
         for i in 0..3 { odom_vel[i] = scale_l / scale_t; }
         for i in 3..6 { odom_vel[i] = scale_a / scale_t; }
-        
-        // Apply Handedness Scaling
+
         for (attr, conversion_scale) in cmap.iter_mut() {
             if let Some(handedness_map) = HANDEDNESS_SCALE.get(attr) {
                 if let Some(handedness_scale) = handedness_map.get(handedness) {
@@ -758,7 +742,6 @@ impl MultiverseServer {
             }
         }
 
-        // --- Populate Uint8/Uint16 Conversion Maps (just copy defaults) ---
         for (_, (attr, default_vec)) in init_attribute_map_uint8() {
             self.conversion_map
                 .conversion_map_uint8
@@ -776,9 +759,6 @@ impl MultiverseServer {
             "meta_data": meta_data.clone(),
             "time": world_time * scale_t
         });
-        
-        // Note: The `send` and `receive` fields will be added to response_meta_data_json
-        // by the subsequent functions (bind_send_objects, etc.)
 
         Ok(())
     }
@@ -794,8 +774,7 @@ impl MultiverseServer {
         if let Some(response_obj) = self.response_meta_data_json.as_object_mut() {
             response_obj.insert("send".to_string(), self.send_objects_json.clone());
         }
-
-        // In full implementation, this would bind objects from the world
+        
         Ok(())
     }
 
