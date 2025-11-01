@@ -11,11 +11,11 @@
 #include <limits>
 #include <json/json.h>
 
-#ifndef KB_ERROR
-#define KB_ERROR(x) std::cerr << "[ERROR] " << x << std::endl
+#ifndef LOG_ERROR
+#define LOG_ERROR(x) std::cerr << "[ERROR] " << x << std::endl
 #endif
-#ifndef KB_INFO
-#define KB_INFO(x) std::cout << "[INFO] " << x << std::endl
+#ifndef LOG_INFO
+#define LOG_INFO(x) std::cout << "[INFO] " << x << std::endl
 #endif
 
 #include "multiverse_client_json.h"
@@ -26,9 +26,8 @@ static const std::map<std::string, size_t> attribute_map_double = {
     {"time", 1},
     {"position", 3},
     {"quaternion", 4},
-    {"cmd_joint_rvalue", 1},
-    {"joint_position", 3},
-    {"joint_quaternion", 4},
+    {"joint_angular_position", 1},
+    {"joint_linear_position", 1},
     {"force", 3},
     {"torque", 3},
 };
@@ -77,11 +76,11 @@ static const char* default_enabled_transport() {
 }
 
 // ---------------- Connector ----------------
-class MultiverseKnowRobConnector : public MultiverseClientJson {
+class MyConnector : public MultiverseClientJson {
 public:
-    enum class Mode { Sender, Receiver };
+    enum class Mode { Sender, Receiver, Both1, Both2 };
 
-    MultiverseKnowRobConnector(const std::string& world,
+    MyConnector(const std::string& world,
                                const std::string& sim,
                                const std::string& host_,
                                const std::string& server_port_,
@@ -101,35 +100,64 @@ public:
         host        = host_;
         server_port = server_port_;
         client_port = client_port_;
-
-        if (mode_ == Mode::Sender) {
+        
+        switch (mode_) {
+        case Mode::Sender:
             send_objects = {
                 {"object1", {"position", "quaternion"}},
                 {"object2", {"position", "quaternion"}},
-                {"knob",    {"cmd_joint_rvalue"}}
+                {"joint1", {"joint_angular_position"}}
             };
             receive_objects.clear();
-        } else {
+            break;
+        case Mode::Receiver:
+            send_objects.clear();
             receive_objects = {
                 {"object1", {"position", "quaternion"}},
                 {"object2", {"position", "quaternion"}},
-                {"knob",    {"cmd_joint_rvalue"}}
+                {"joint1", {"joint_angular_position"}}
             };
+            break;
+        case Mode::Both1:
+            send_objects = {
+                {"object3", {"position"}},
+                {"object4", {"quaternion"}}
+            };
+            receive_objects = {
+                {"object3", {"quaternion"}},
+                {"object4", {"position"}},
+                {"joint2", {"joint_angular_position"}}
+            };
+            break;
+        case Mode::Both2:
+            send_objects = {
+                {"object3", {"quaternion"}},
+                {"object4", {"position"}},
+                {"joint2", {"joint_angular_position"}}
+            };
+            receive_objects = {
+                {"object3", {"position"}},
+                {"object4", {"quaternion"}},
+            };
+            break;
         }
 
         set_transport(transport);
+
+        std::cout << "[Init] Connecting to server...\n";
         connect();
+        std::cout << "[Init] Connected to server.\n";
 
         if (world_time) *world_time = 0.0;
         reset(); 
 
-        std::cout << "[Init] mode=" << (mode_==Mode::Sender ? "Sender" : "Receiver")
+        std::cout << "[Init] mode=" << (mode_==Mode::Sender ? "Sender" : (mode_==Mode::Receiver ? "Receiver" : (mode_==Mode::Both1 ? "Both1" : "Both2")))
                   << " transport=" << transport_name(transport)
-                  << " host=" << host << " server=" << server_port
-                  << " data=" << client_port << "\n";
+                  << " host=" << host 
+                  << " server=" << server_port << " client=" << client_port << "\n";
     }
 
-    ~MultiverseKnowRobConnector() { stop(); }
+    ~MyConnector() { stop(); }
 
     void start() {
         communicate(true);
@@ -148,37 +176,25 @@ public:
         if (th_.joinable()) th_.join();
     }
 
-    void set_object_pose(const std::string &obj,
-                         const double pos[3],
-                         const double quat[4])
+    void set_send_object(const std::string &obj,
+                         const std::string &attr,
+                         const double* data,
+                         const size_t data_size)
     {
         auto it = send_objects_data.find(obj);
         if (it == send_objects_data.end()) {
-            std::cerr << "[set_object_pose] object not found in send_objects_data: " << obj << "\n";
+            LOG_ERROR("Object '" << obj << "' not found in send_objects_data");
             return;
         }
 
         auto &amap = it->second;
-        auto ip = amap.find("position");
-        auto iq = amap.find("quaternion");
+        auto ip = amap.find(attr);
 
-        if (ip != amap.end() && ip->second.size() == 3)
-            for (size_t i = 0; i < 3; ++i) *(ip->second[i]) = pos[i];
-        if (iq != amap.end() && iq->second.size() == 4)
-            for (size_t i = 0; i < 4; ++i) *(iq->second[i]) = quat[i];
-
-        using clock = std::chrono::steady_clock;
-        static auto last = clock::now();
-        auto now = clock::now();
-        if (now - last >= std::chrono::milliseconds(250)) {
-            last = now;
-            std::cout << "[pose->send] " << obj
-                      << "  pos=[" << pos[0] << ", " << pos[1] << ", " << pos[2] << "]"
-                      << "  quat=[" << quat[0] << ", " << quat[1] << ", " << quat[2] << ", " << quat[3] << "]\n";
-        }
+        if (ip != amap.end() && ip->second.size() == data_size)
+            for (size_t i = 0; i < data_size; ++i) *(ip->second[i]) = *(data+i);
+        else
+            LOG_ERROR("Attribute '" << attr << "' not found in send_objects_data['" << obj << "'] or size mismatch");
     }
-
-    void set_knob(double v) { knob_.store(v); }
 
     void log_receive_snapshot(std::chrono::milliseconds every = std::chrono::milliseconds(250)) const {
         using clock = std::chrono::steady_clock;
@@ -208,9 +224,6 @@ public:
             }
         }
     }
-
-    const std::map<std::string, std::map<std::string, std::vector<double*>>>&
-    receive_map() const { log_receive_snapshot(); return receive_objects_data; }
 
 private:
     // ---- MultiverseClientJson overrides ----
@@ -281,11 +294,6 @@ private:
             }
         }
 
-        if (auto it=send_objects_data.find("knob"); it!=send_objects_data.end()) {
-            auto jt = it->second.find("cmd_joint_rvalue");
-            if (jt!=it->second.end() && !jt->second.empty()) knob_ptr_ = jt->second[0];
-        }
-
         double *rp = receive_buffer.buffer_double.data;
         for (const auto& ro : receive_objects) {
             auto &mp = receive_objects_data[ro.first];
@@ -302,16 +310,48 @@ private:
 
     void bind_send_data() override {
         if (world_time) *world_time = get_time_now() - sim_start_time;
-        if (knob_ptr_) *knob_ptr_ = knob_.load();
 
-        if (mode_ == Mode::Sender) {
+        if (mode_ == Mode::Sender || mode_ == Mode::Both1 || mode_ == Mode::Both2) {
             const double t = get_time_now() - sim_start_time;
             double pos1[3]  = { std::sin(t), 2.0, 3.0 };
-            double quat1[4] = { 1.0, 0.0, 0.0, 0.0 };
+            double quat1[4] = { std::sin(t), std::cos(t), 0.0, 0.0 };
             double pos2[3]  = { 3.0, 4.0 + 0.5*std::sin(t), 5.0 };
-            double quat2[4] = { 0.0, 0.0, 0.0, 1.0 };
-            set_object_pose("object1", pos1, quat1);
-            set_object_pose("object2", pos2, quat2);
+            double quat2[4] = { 0.0, std::sin(t), std::cos(t), 0.0 };
+            double joint_angular_position[1] = { 0.5 * std::sin(t) };
+            if (mode_ == Mode::Sender) {
+                set_send_object("object1", "position", pos1, 3);
+                set_send_object("object1", "quaternion", quat1, 4);
+                set_send_object("object2", "position", pos2, 3);
+                set_send_object("object2", "quaternion", quat2, 4);
+                set_send_object("joint1", "joint_angular_position", joint_angular_position, 1);
+            } else if (mode_ == Mode::Both1) {
+                set_send_object("object3", "position", pos1, 3);
+                set_send_object("object4", "quaternion", quat2, 4);
+            } else if (mode_ == Mode::Both2) {
+                set_send_object("object3", "quaternion", quat1, 4);
+                set_send_object("object4", "position", pos2, 3);
+                set_send_object("joint2", "joint_angular_position", joint_angular_position, 1);
+            }
+            using clock = std::chrono::steady_clock;
+            static auto last = clock::now();
+            auto now = clock::now();
+            if (now - last >= std::chrono::milliseconds(250)) {
+                last = now;
+                for (auto send_object_data : send_objects_data) {
+                    const auto& obj = send_object_data.first;
+                    const auto& attrs = send_object_data.second;
+                    std::cout << "[send] " << obj;
+                    for (const auto& attr : attrs) {
+                        std::cout << "  " << attr.first << "=[";
+                        for (size_t i = 0; i < attr.second.size(); ++i) {
+                            double v = attr.second[i] ? *attr.second[i] : std::numeric_limits<double>::quiet_NaN();
+                            std::cout << v << (i + 1 < attr.second.size() ? ", " : "");
+                        }
+                        std::cout << "]";
+                    }
+                    std::cout << "\n";
+                }
+            }
         }
     }
 
@@ -336,9 +376,6 @@ private:
     std::thread th_;
     std::atomic<bool> stop_flag_{false};
 
-    std::atomic<double> knob_{0.0};
-    double* knob_ptr_ = nullptr;
-
     double sim_start_time{0.0};
 };
 
@@ -347,8 +384,9 @@ static std::atomic<bool> g_exit{false};
 static void on_signal(int){ g_exit.store(true); }
 
 struct Args {
-    std::string world="my_world", sim="sim01", host="127.0.0.1";
-    std::string server="7000", data="7001";
+    std::string world="my_world", sim="sim_1";
+    std::string host="127.0.0.1";
+    std::string server="7000", client="7001";
     std::string mode="receiver";
     std::string transport="";
 };
@@ -362,29 +400,29 @@ static Args parse_args(int argc, char** argv) {
         else if (k=="--sim") take(a.sim);
         else if (k=="--host") take(a.host);
         else if (k=="--server") take(a.server);
-        else if (k=="--client" || k=="--data") take(a.data);
+        else if (k=="--client") take(a.client);
         else if (k=="--mode") take(a.mode);
         else if (k=="--transport") take(a.transport);
     }
     return a;
 }
 
-static void print_vec(const std::vector<double*>& v) {
-    std::cout << "[";
-    for (size_t i=0;i<v.size();++i){
-        std::cout << (v[i]? *v[i] : 0.0);
-        if (i+1<v.size()) std::cout << ", ";
-    }
-    std::cout << "]";
-}
+// static void print_vec(const std::vector<double*>& v) {
+//     std::cout << "[";
+//     for (size_t i=0;i<v.size();++i){
+//         std::cout << (v[i]? *v[i] : 0.0);
+//         if (i+1<v.size()) std::cout << ", ";
+//     }
+//     std::cout << "]";
+// }
 
-static void print_attr_or_na(const std::map<std::string, std::vector<double*>>& attrs,
-                             const char* name) {
-    std::cout << name << "=";
-    auto it = attrs.find(name);
-    if (it != attrs.end()) print_vec(it->second);
-    else std::cout << "<n/a>";
-}
+// static void print_attr_or_na(const std::map<std::string, std::vector<double*>>& attrs,
+//                              const char* name) {
+//     std::cout << name << "=";
+//     auto it = attrs.find(name);
+//     if (it != attrs.end()) print_vec(it->second);
+//     else std::cout << "<n/a>";
+// }
 
 int main(int argc, char** argv) {
     std::signal(SIGINT, on_signal);
@@ -393,7 +431,7 @@ int main(int argc, char** argv) {
     Args args = parse_args(argc, argv);
 
     // ---- show build config ----
-    KB_INFO("Build config: "
+    LOG_INFO("Build config: "
 #if USE_ZMQ
             "ZMQ=1 "
 #else
@@ -414,14 +452,14 @@ int main(int argc, char** argv) {
     // ---- default / validate transport ----
     if (args.transport.empty()) {
         args.transport = default_enabled_transport();
-        KB_INFO("Default transport selected: " << args.transport);
+        LOG_INFO("Default transport selected: " << args.transport);
     } else if (!is_transport_enabled(args.transport)) {
-        KB_ERROR("Transport '" << args.transport << "' is not compiled in this build.");
+        LOG_ERROR("Transport '" << args.transport << "' is not compiled in this build.");
         return 3;
     }
 
-    auto mode = (args.mode=="sender") ? MultiverseKnowRobConnector::Mode::Sender
-                                      : MultiverseKnowRobConnector::Mode::Receiver;
+    auto mode = (args.mode=="sender") ? MyConnector::Mode::Sender
+                                      : MyConnector::Mode::Receiver;
 
     TransportType tt = TransportType::Tcp;
 #if USE_ZMQ
@@ -436,39 +474,43 @@ int main(int argc, char** argv) {
 
     std::cout << "[App] mode=" << args.mode
               << " transport=" << args.transport
-              << " server=" << args.server << " data=" << args.data
-              << " host=" << args.host << "\n";
+              << " host=" << args.host
+              << " server=" << args.server << " client=" << args.client
+              << " world=" << args.world << " sim=" << args.sim << "\n";
 
 #ifdef _WIN32
+    std::cout << "[Init] Initializing Winsock...\n";
     WSADATA wsaData;
     int wsaerr = WSAStartup(MAKEWORD(2, 2), &wsaData);
     if (wsaerr != 0) {
         throw std::runtime_error("WSAStartup failed with error: " + std::to_string(wsaerr));
     }
+    std::cout << "[Init] Winsock initialized.\n";
 #endif
 
-    MultiverseKnowRobConnector cli(args.world, args.sim, args.host, args.server, args.data, mode, tt);
-    cli.start();
+    MyConnector my_connector(args.world, args.sim, args.host, args.server, args.client, mode, tt);
+    my_connector.start();
 
     while (!g_exit.load()) {
-        if (mode == MultiverseKnowRobConnector::Mode::Receiver) {
-            const auto& rod = cli.receive_map();
-            auto it1 = rod.find("object1");
-            auto it2 = rod.find("object2");
+        if (mode == MyConnector::Mode::Receiver) {
+            my_connector.log_receive_snapshot();
+            // const auto& rod = my_connector.receive_map();
+            // auto it1 = rod.find("object1");
+            // auto it2 = rod.find("object2");
 
-            std::cout << "---\n";
-            if (it1 != rod.end()) {
-                print_attr_or_na(it1->second, "position");   std::cout << "  ";
-                print_attr_or_na(it1->second, "quaternion"); std::cout << "\n";
-            }
-            if (it2 != rod.end()) {
-                print_attr_or_na(it2->second, "position");   std::cout << "  ";
-                print_attr_or_na(it2->second, "quaternion"); std::cout << "\n";
-            }
+            // std::cout << "---\n";
+            // if (it1 != rod.end()) {
+            //     print_attr_or_na(it1->second, "position");   std::cout << "  ";
+            //     print_attr_or_na(it1->second, "quaternion"); std::cout << "\n";
+            // }
+            // if (it2 != rod.end()) {
+            //     print_attr_or_na(it2->second, "position");   std::cout << "  ";
+            //     print_attr_or_na(it2->second, "quaternion"); std::cout << "\n";
+            // }
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
 
-    cli.stop();
+    my_connector.stop();
     return 0;
 }
