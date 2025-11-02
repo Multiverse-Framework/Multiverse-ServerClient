@@ -25,14 +25,13 @@ inline uint32_t htole32_custom(uint32_t host_32bits) {
     return __builtin_bswap32(host_32bits);
 #else
     const uint32_t test = 1;
-    if (*reinterpret_cast<const uint8_t*>(&test) == 1) {
+    if (*reinterpret_cast<const uint8_t*>(&test) == 1)
         return host_32bits;
-    } else {
+    else
         return ((host_32bits & 0xFF000000u) >> 24) |
                ((host_32bits & 0x00FF0000u) >> 8)  |
                ((host_32bits & 0x0000FF00u) << 8)  |
                ((host_32bits & 0x000000FFu) << 24);
-    }
 #endif
 }
 
@@ -189,16 +188,29 @@ inline bool send_parts(socket_t fd, const std::vector<std::string>& parts) {
     return true;
 }
 
-inline bool recv_parts(socket_t fd, std::vector<std::string>& out, int timeout_ms = 1000) {
+inline bool recv_parts(socket_t fd, std::vector<std::string>& out, int timeout_ms = -1) {
     std::vector<uint8_t> buf(MAX_UDP_PAYLOAD);
 
     fd_set rfds;
     FD_ZERO(&rfds);
     FD_SET(fd, &rfds);
-    timeval tv{timeout_ms / 1000, (timeout_ms % 1000) * 1000};
 
-    int sel = select(fd + 1, &rfds, nullptr, nullptr, &tv);
-    if (sel <= 0) return false;
+    timeval tv;
+    timeval* tv_ptr = nullptr;
+    if (timeout_ms >= 0) {
+        tv.tv_sec = timeout_ms / 1000;
+        tv.tv_usec = (timeout_ms % 1000) * 1000;
+        tv_ptr = &tv;
+    }
+
+    int sel = select(fd + 1, &rfds, nullptr, nullptr, tv_ptr);
+    if (sel <= 0) {
+        if (sel == 0 && timeout_ms >= 0)
+            mv_log("[rawudp] recv timeout after %d ms", timeout_ms);
+        else if (sel < 0)
+            perror("[rawudp] select (recv)");
+        return false;
+    }
 
 #ifdef _WIN32
     int n = ::recv(fd, reinterpret_cast<char*>(buf.data()), (int)buf.size(), 0);
@@ -227,16 +239,29 @@ inline bool send_parts_to(socket_t fd, const std::vector<std::string>& parts,
 
 inline bool recv_parts_from(socket_t fd, std::vector<std::string>& out,
                             struct sockaddr* from = nullptr, socklen_t* from_len = nullptr,
-                            int timeout_ms = 1000) {
+                            int timeout_ms = -1) {
     std::vector<uint8_t> buf(MAX_UDP_PAYLOAD);
 
     fd_set rfds;
     FD_ZERO(&rfds);
     FD_SET(fd, &rfds);
-    timeval tv{timeout_ms / 1000, (timeout_ms % 1000) * 1000};
 
-    int sel = select(fd + 1, &rfds, nullptr, nullptr, &tv);
-    if (sel <= 0) return false;
+    timeval tv;
+    timeval* tv_ptr = nullptr;
+    if (timeout_ms >= 0) {
+        tv.tv_sec = timeout_ms / 1000;
+        tv.tv_usec = (timeout_ms % 1000) * 1000;
+        tv_ptr = &tv;
+    }
+
+    int sel = select(fd + 1, &rfds, nullptr, nullptr, tv_ptr);
+    if (sel <= 0) {
+        if (sel == 0 && timeout_ms >= 0)
+            mv_log("[rawudp] recvfrom timeout after %d ms", timeout_ms);
+        else if (sel < 0)
+            perror("[rawudp] select (recvfrom)");
+        return false;
+    }
 
 #ifdef _WIN32
     int n = ::recvfrom(fd, reinterpret_cast<char*>(buf.data()), (int)buf.size(), 0, from, from_len);
@@ -245,6 +270,7 @@ inline bool recv_parts_from(socket_t fd, std::vector<std::string>& out,
 #endif
     if (n <= 0) return false;
 
+    mv_log("[rawudp] Received %zd bytes from remote peer", (ssize_t)n);
     return decode_parts(buf.data(), (size_t)n, out);
 }
 

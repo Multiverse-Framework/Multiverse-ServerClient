@@ -17,9 +17,9 @@
 //   #define MV_DEBUG_IO 0
 //   #include "my_log.h"
 
-#define MV_DEBUG_IO 1
+#define MV_DEBUG_IO 0
 #ifndef MV_DEBUG_IO
-#define MV_DEBUG_IO 1
+#define MV_DEBUG_IO 0
 #endif
 
 // ---------------------------------------------------------------------------

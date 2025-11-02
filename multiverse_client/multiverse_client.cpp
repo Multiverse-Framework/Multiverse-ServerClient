@@ -130,6 +130,24 @@ double MultiverseClient::get_time_now() const {
 void MultiverseClient::run() {
     while (!ShutdownManager::is_shutdown()) {
         auto current_flag = flag.load();
+        // ---- State transition log ----
+        const char* state_name = "UNKNOWN";
+        switch (current_flag) {
+        case EMultiverseClientState::StartConnection:        state_name = "StartConnection"; break;
+        case EMultiverseClientState::BindRequestMetaData:    state_name = "BindRequestMetaData"; break;
+        case EMultiverseClientState::SendRequestMetaData:    state_name = "SendRequestMetaData"; break;
+        case EMultiverseClientState::ReceiveResponseMetaData:state_name = "ReceiveResponseMetaData"; break;
+        case EMultiverseClientState::BindResponseMetaData:   state_name = "BindResponseMetaData"; break;
+        case EMultiverseClientState::InitSendAndReceiveData: state_name = "InitSendAndReceiveData"; break;
+        case EMultiverseClientState::BindSendData:           state_name = "BindSendData"; break;
+        case EMultiverseClientState::SendData:               state_name = "SendData"; break;
+        case EMultiverseClientState::ReceiveData:            state_name = "ReceiveData"; break;
+        case EMultiverseClientState::BindReceiveData:        state_name = "BindReceiveData"; break;
+        default:                                             state_name = "Unknown"; break;
+        }
+
+        mv_log("[Client %s] State -> %s (socket: %s)\n",
+               client_port.c_str(), state_name, socket_addr.c_str());
         switch (current_flag) {
         case EMultiverseClientState::StartConnection:
             transport_->disconnect(socket_addr);
