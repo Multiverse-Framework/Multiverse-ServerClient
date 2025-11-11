@@ -265,85 +265,68 @@ public:
     void set_dump(bool on) { dump_ = on; }
     void connect(const std::string &endpoint) override
     {
-        disconnect("");
-
-        // --- Simple retry ---
-        constexpr size_t kMaxAttempts = 12;
-        constexpr int kSleepMs = 200;
-        constexpr int kConnectErrLog = 1;
-
         auto hp = split_host_port(endpoint);
         const std::string &host = hp.first;
         const std::string &port_s = hp.second;
-        const uint16_t port = get_port(port_s);
 
-        sockaddr_in addr{};
-        addr.sin_family = AF_INET;
-        addr.sin_port = htons(port);
+        // Set up address resolution hints
+        addrinfo hints{};
+        hints.ai_family = AF_UNSPEC; // Allow IPv4 or IPv6
+        hints.ai_socktype = SOCK_STREAM;
+        hints.ai_protocol = IPPROTO_TCP;
 
-        // Try to interpret host as IPv4 first
-        bool have_addr = (::inet_pton(AF_INET, host.c_str(), &addr.sin_addr) == 1);
-
-        if (!have_addr)
+        addrinfo *res = nullptr;
+        if (getaddrinfo(host.c_str(), port_s.c_str(), &hints, &res) != 0)
         {
-#ifdef _WIN32
-            HOSTENT *he = ::gethostbyname(host.c_str());
-            if (!he || he->h_addrtype != AF_INET)
-            {
-                throw std::runtime_error("TcpTransport: DNS failed for " + host);
-            }
-            std::memcpy(&addr.sin_addr, he->h_addr_list[0], he->h_length);
-#else
-            struct hostent *he = ::gethostbyname(host.c_str());
-            if (!he || he->h_addrtype != AF_INET)
-            {
-                throw std::runtime_error("TcpTransport: DNS failed for " + host);
-            }
-            std::memcpy(&addr.sin_addr, he->h_addr_list[0], he->h_length);
-#endif
+            throw std::runtime_error(make_socket_error_str("TcpTransport: getaddrinfo(connect) failed for " + endpoint));
         }
 
+        struct AddrInfoGuard
+        {
+            addrinfo *&addr;
+            ~AddrInfoGuard()
+            {
+                if (addr)
+                    freeaddrinfo(addr);
+            }
+        } guard{res};
+
+        // Retry logic
+        constexpr size_t kMaxAttempts = 12;
+        constexpr int kSleepMs = 200;
+        constexpr int kConnectErrLog = 1;
         int last_err = 0;
 
         for (size_t attempt = 1; attempt <= kMaxAttempts; ++attempt)
         {
-            socket_t cand = ::socket(AF_INET, SOCK_STREAM, 0);
-            if (!is_valid_socket(cand))
+            // Try each address returned by getaddrinfo
+            for (auto *p = res; p; p = p->ai_next)
             {
-#ifdef _WIN32
-                last_err = WSAGetLastError();
-#else
-                last_err = errno;
-#endif
-                if (dump_ && kConnectErrLog)
+                socket_t cand = ::socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+                if (!is_valid_socket(cand))
                 {
-                    mv_log("[tcp] socket() failed (attempt %zu/%zu), err=%d",
-                           attempt, kMaxAttempts, last_err);
+                    last_err = sock_errno();
+                    continue;
                 }
-                std::this_thread::sleep_for(std::chrono::milliseconds(kSleepMs));
-                continue;
+
+                set_common_sockopts(cand);
+
+                if (::connect(cand, p->ai_addr, static_cast<socklen_t>(p->ai_addrlen)) == 0)
+                {
+                    // Success!
+                    sockfd_ = cand;
+                    endpoint_ = endpoint;
+                    mode_ = Mode::ClientConnected;
+                    if (dump_)
+                        mv_log("[tcp] connected to %s (attempt %zu/%zu)", endpoint_.c_str(), attempt, kMaxAttempts);
+                    return;
+                }
+
+                last_err = sock_errno();
+                close_socket(cand);
             }
 
-            set_common_sockopts(cand);
-
-            if (::connect(cand, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0)
-            {
-                // success
-                sockfd_ = cand;
-                endpoint_ = endpoint;
-                mode_ = Mode::ClientConnected;
-                if (dump_)
-                    mv_log("[tcp] connected to %s (attempt %zu/%zu)", endpoint_.c_str(), attempt, kMaxAttempts);
-                return;
-            }
-
-#ifdef _WIN32
-            last_err = WSAGetLastError();
-#else
-            last_err = errno;
-#endif
-            close_socket(cand);
-
+            // All addresses failed for this attempt
             if (attempt < kMaxAttempts)
             {
                 if (dump_ && kConnectErrLog)
@@ -360,13 +343,19 @@ public:
             }
         }
 
-        // final failure
+        // Final failure
         throw std::runtime_error(make_socket_error_str("TcpTransport: connect failed to " + endpoint));
     }
     // ==================== SERVER MODE ====================
     void listen(const std::string &endpoint) override
     {
-        disconnect(""); // Clean up previous state
+        // Clean up previous listen socket if any
+        if (is_valid_socket(listen_fd_))
+        {
+            close_socket(listen_fd_);
+            listen_fd_ = invalid_socket(); // Fixed: was INVALID_SOCKET
+        }
+
         auto hp = split_host_port(endpoint);
         const std::string &host = hp.first;
         const std::string &port_s = hp.second;
@@ -393,26 +382,38 @@ public:
             }
         } guard{res};
 
+        // Try each address until one succeeds
         for (auto *p = res; p; p = p->ai_next)
         {
             socket_t cand = ::socket(p->ai_family, p->ai_socktype, p->ai_protocol);
             if (!is_valid_socket(cand))
                 continue;
-            int yes = 1;
-            ::setsockopt(cand, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&yes), sizeof(yes));
+
             set_common_sockopts(cand);
-            if (::bind(cand, p->ai_addr, static_cast<socklen_t>(p->ai_addrlen)) == 0 && ::listen(cand, 16) == 0)
+
+            // Try to bind and listen
+            if (::bind(cand, p->ai_addr, static_cast<socklen_t>(p->ai_addrlen)) != 0)
             {
-                listen_fd_ = cand;
-                endpoint_listen_ = endpoint;
-                mode_ = Mode::ServerListening;
-                if (dump_)
-                    mv_log("[tcp] listening on %s", endpoint_listen_.c_str());
-                return;
+                close_socket(cand);
+                continue; // Try next address
             }
-            close_socket(cand);
+
+            if (::listen(cand, SOMAXCONN) != 0)
+            {
+                close_socket(cand);
+                continue; // Try next address
+            }
+
+            // Success!
+            listen_fd_ = cand;
+            endpoint_listen_ = endpoint;
+            mode_ = Mode::ServerListening;
+            if (dump_)
+                mv_log("[tcp] listening on %s", endpoint_listen_.c_str());
+            return;
         }
-        throw std::runtime_error(make_socket_error_str("TcpTransport: listen failed on " + endpoint));
+
+        throw std::runtime_error(make_socket_error_str("TcpTransport: bind/listen failed on " + endpoint));
     }
     bool accept() override
     {
@@ -435,8 +436,9 @@ public:
         sockfd_ = cfd;
         endpoint_ = describe_peer(cliaddr);
         mode_ = Mode::ServerConnected;
-        if (dump_)
-            mv_log("[tcp] accepted client %s", endpoint_.c_str());
+        if (dump_) {
+            mv_log("[tcp] accepted client [%d] %s", sockfd_, endpoint_.c_str());
+        }
         return true;
     }
     void bind(const std::string &endpoint) override
@@ -453,7 +455,7 @@ public:
     void disconnect(const std::string & /*endpoint*/) override
     {
         close_conn_socket();
-        close_listen_socket();
+        close_listen_socket(); // Fixed: now uncommented
         clear_buffers();
         mode_ = Mode::Idle;
     }
@@ -504,8 +506,9 @@ public:
             parts = std::move(in_parts_);
             in_parts_.clear();
             in_next_ = 0;
-            if (dump_)
+            if (dump_) {
                 mv_log("[tcp] recv_multipart: %zu part(s)", parts.size());
+            }
             return true;
         }
         catch (const std::runtime_error &)
@@ -549,11 +552,15 @@ private:
         }
         return "<unknown_peer>";
     }
+
     static void set_common_sockopts(socket_t s)
     {
         int yes = 1;
-        ::setsockopt(s, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char *>(&yes), sizeof(yes));
         ::setsockopt(s, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&yes), sizeof(yes));
+    #ifndef _WIN32
+        ::setsockopt(s, SOL_SOCKET, SO_REUSEPORT, reinterpret_cast<const char *>(&yes), sizeof(yes));
+    #endif
+        ::setsockopt(s, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char *>(&yes), sizeof(yes));
     }
 
     void flush_out_parts()
@@ -578,8 +585,6 @@ private:
         std::vector<std::string> wire_parts;
         if (!rawtcp::recv_parts(sockfd_, wire_parts))
         {
-            // Connection closed by peer or error
-            close_conn_socket();
             throw std::runtime_error("TcpTransport: recv_parts failed (connection closed or error)");
         }
         in_parts_ = std::move(wire_parts);
@@ -594,17 +599,25 @@ private:
 
     void close_conn_socket()
     {
+        if (dump_) {
+            mv_log("[tcp] closing connection socket mode=%d sockfd=%d listen_fd=%d",
+                   static_cast<int>(mode_), sockfd_, listen_fd_);
+        }
+
         if (is_valid_socket(sockfd_))
         {
             close_socket(sockfd_);
             sockfd_ = invalid_socket();
         }
         endpoint_.clear();
+
+        // Update mode appropriately
         if (mode_ == Mode::ClientConnected || mode_ == Mode::ServerConnected)
         {
             mode_ = is_valid_socket(listen_fd_) ? Mode::ServerListening : Mode::Idle;
         }
     }
+
     void close_listen_socket()
     {
         if (is_valid_socket(listen_fd_))
@@ -622,6 +635,15 @@ private:
         out_parts_.clear();
         in_parts_.clear();
         in_next_ = 0;
+    }
+
+    static int sock_errno()
+    {
+#ifdef _WIN32
+        return WSAGetLastError();
+#else
+        return errno;
+#endif
     }
 };
 #endif

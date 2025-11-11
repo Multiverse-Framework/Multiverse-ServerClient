@@ -378,7 +378,7 @@ private:
      *
      */
     bool continue_state = false;
-
+    bool instance_shutdown = false;
     std::unique_ptr<ITransport> transport_ = nullptr;
 };
 

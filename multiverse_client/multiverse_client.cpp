@@ -146,7 +146,7 @@ void MultiverseClient::run() {
         default:                                             state_name = "Unknown"; break;
         }
 
-        mv_log("[Client %s] State -> %s (socket: %s)\n",
+        mv_log("[Client %s] State -> %s (socket: %s)",
                client_port.c_str(), state_name, socket_addr.c_str());
         switch (current_flag) {
         case EMultiverseClientState::StartConnection:

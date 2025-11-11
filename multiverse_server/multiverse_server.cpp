@@ -328,6 +328,7 @@ MultiverseServer::MultiverseServer(const std::string &zmq_endpoint)
     }
     transport_ = std::move(zmq_transport);
     sockets_need_clean_up[socket_addr] = false;
+    instance_shutdown = false;
     std::printf("[Server] Bind to socket %s.\n", socket_addr.c_str());
 #else
     throw std::runtime_error("[Server] ZMQ support is not enabled in this build.");
@@ -356,6 +357,7 @@ MultiverseServer::MultiverseServer(const std::string &host,
         }
         transport_ = std::move(tcp_transport);
         sockets_need_clean_up[socket_addr] = false;
+        instance_shutdown = false;
 #else
         throw std::runtime_error("[Server] Raw TCP support is not enabled in this build.");
 #endif
@@ -369,6 +371,7 @@ MultiverseServer::MultiverseServer(const std::string &host,
         udp_transport->listen(host + ":" + port);
         transport_ = std::move(udp_transport);
         sockets_need_clean_up[socket_addr] = false;
+        instance_shutdown = false;
 #else
         throw std::runtime_error("[Server] Raw UDP support is not enabled in this build.");
 #endif
@@ -449,13 +452,17 @@ MultiverseServer::~MultiverseServer()
     }
 
     printf("[Server] Clean up socket %s.\n", socket_addr.c_str());
-
+    worlds[request_world_name].simulations.erase(request_simulation_name);
+    request_simulation_name.clear();
+    simulation_name.clear();
+    request_world_name.clear();
+    world_name.clear();
     sockets_need_clean_up[socket_addr] = false;
 }
 
 void MultiverseServer::start()
 {
-    while (!ShutdownManager::is_shutdown())
+    while (!instance_shutdown)
     {
         switch (flag)
         {
@@ -487,6 +494,7 @@ void MultiverseServer::start()
 
             if (ShutdownManager::is_shutdown())
             {
+                mv_log("[Server] Shutdown signal received, closing server on socket %s.", socket_addr.c_str());
                 break;
             }
 
@@ -610,7 +618,11 @@ void MultiverseServer::start()
         printf("[Server] Unbind socket %s.\n", socket_addr.c_str());
         try
         {
-            transport_->unbind(socket_addr);
+            if (transport_->get_transport_type() == TransportType::Tcp) {
+                printf("[Server] Disconnected the tcp socket client %s\n", socket_addr.c_str());
+            } else {
+                transport_->unbind(socket_addr);
+            }
         }
         catch (const zmq::error_t &e)
         {
@@ -627,7 +639,15 @@ EMultiverseServerState MultiverseServer::receive_data()
         std::vector<std::vector<uint8_t>> payloads;
         if (!recv_message(message_spec_int, payloads))
         {
-            throw zmq::error_t(); // reuse original error handling path
+            if (transport_->get_transport_type() == TransportType::Zmq) {
+                throw zmq::error_t();
+            }
+            else 
+            {
+                instance_shutdown = true;
+                sockets_need_clean_up[socket_addr] = true;
+                return EMultiverseServerState::ReceiveRequestMetaData;
+            }
         }
 
         if (message_spec_int == 0 && payloads.size() == 0)
@@ -1847,7 +1867,7 @@ void start_multiverse_server_tcp(const std::string &host, const std::string &por
             continue;
         }
 
-        mv_log("[Server-TCP] Client connected!");
+        mv_log("[Server-TCP] Client connected! %s:%d", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
         std::vector<std::string> parts;
         if (!rawtcp::recv_parts(client_fd, parts))
@@ -1887,19 +1907,24 @@ void start_multiverse_server_tcp(const std::string &host, const std::string &por
         std::string worker_addr = host + ":" + std::to_string(worker_port);
         mv_log("[Server-TCP] Launching worker for %s", request.c_str());
 
-        if (workers.count(worker_addr) == 0)
+        if (workers.count(worker_addr))
         {
-            workers[worker_addr] = std::thread([worker_addr, host, worker_port]()
-                                               {
-            try {
-                MultiverseServer worker_server(host, std::to_string(worker_port), TransportType::Tcp);
-                sleep_ms(500);
-                worker_server.start();
-                mv_log("[Server-TCP-Worker] system is down now");
-            } catch (const std::exception& e) {
-                mv_log("[Server-TCP-Worker] Exception on %s: %s", worker_addr.c_str(), e.what());
-            } });
+            mv_log("[Server-TCP] Cleaning up old worker on %s", worker_addr.c_str());
+            if (workers[worker_addr].joinable()) {
+                workers[worker_addr].join();
+            }
+            workers.erase(worker_addr);
         }
+
+        workers[worker_addr] = std::thread([worker_addr, host]()
+                                           {
+        try {
+            mv_log("[Server-TCP-Worker] Starting at thread %s", worker_addr.c_str());
+            MultiverseServer server(host, worker_addr.substr(worker_addr.find(':') + 1), TransportType::Tcp);
+            server.start();
+        } catch (const std::exception& e) {
+            mv_log("[Server-TCP-Worker] Exception on %s: %s", worker_addr.c_str(), e.what());
+        } });
 
         std::vector<std::string> resp = {worker_addr};
         if (!rawtcp::send_parts(client_fd, resp))
@@ -1908,7 +1933,9 @@ void start_multiverse_server_tcp(const std::string &host, const std::string &por
         }
 
         CLOSESOCK(client_fd);
-        mv_log("[Server-TCP] Connection closed.");
+        mv_log("[Server-TCP] Connection closed. %s:%d",
+               inet_ntoa(client_addr.sin_addr),
+               ntohs(client_addr.sin_port));
     }
 
     mv_log("[Server-TCP] Dispatcher shutting down, waiting for workers...");
