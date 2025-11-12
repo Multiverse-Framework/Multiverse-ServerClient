@@ -460,6 +460,11 @@ MultiverseServer::~MultiverseServer()
     sockets_need_clean_up[socket_addr] = false;
 }
 
+void MultiverseServer::stop() {
+    instance_shutdown = true;
+    transport_->unbind(socket_addr);
+}
+
 void MultiverseServer::start()
 {
     while (!instance_shutdown)
@@ -1985,7 +1990,7 @@ void start_multiverse_server_udp(const std::string &host, const std::string &por
     srv.sin_family = AF_INET;
     srv.sin_port = htons(static_cast<uint16_t>(std::stoi(port)));
     srv.sin_addr.s_addr = inet_addr(host.c_str());
-    if (::bind(sock, reinterpret_cast<sockaddr*>(&srv), sizeof(srv)) < 0)
+    if (::bind(sock, reinterpret_cast<sockaddr *>(&srv), sizeof(srv)) < 0)
     {
         perror("bind");
         CLOSESOCK(sock);
@@ -1995,24 +2000,27 @@ void start_multiverse_server_udp(const std::string &host, const std::string &por
         return;
     }
 
+    std::map<std::string, std::shared_ptr<MultiverseServer>> servers;
     std::map<std::string, std::thread> workers;
+    std::mutex workers_mutex;
+
+    mv_log("[Server-UDP] Dispatcher started, waiting for handshakes...");
 
     while (!ShutdownManager::is_shutdown())
     {
-        mv_log("[Server-UDP] Waiting for handshake on %s:%s", host.c_str(), port.c_str());
-
         std::vector<std::string> parts;
         sockaddr_storage from{};
         socklen_t fromlen = sizeof(from);
 
-        if (!rawudp::recv_parts_from(sock, parts, (sockaddr*)&from, &fromlen))
+        if (!rawudp::recv_parts_from(sock, parts, (sockaddr *)&from, &fromlen, 1000))
         {
-            mv_log("[Server-UDP] Failed to receive handshake (protocol error).");
+            if (ShutdownManager::is_shutdown()) break;
             continue;
         }
+
         if (parts.empty() || parts[0].empty())
         {
-            mv_log("[Server-UDP] Empty handshake request (no socket_addr).");
+            mv_log("[Server-UDP] Empty handshake request.");
             continue;
         }
 
@@ -2025,45 +2033,101 @@ void start_multiverse_server_udp(const std::string &host, const std::string &por
         if (pos != std::string::npos)
         {
             client_host = request.substr(0, pos);
-            try { requested_port = static_cast<uint16_t>(std::stoi(request.substr(pos + 1))); }
-            catch (...) { requested_port = 0; }
+            try
+            {
+                requested_port = static_cast<uint16_t>(std::stoi(request.substr(pos + 1)));
+            }
+            catch (...)
+            {
+                requested_port = 0;
+            }
         }
 
         uint16_t worker_port = requested_port;
         std::string worker_addr = host + ":" + std::to_string(worker_port);
 
-        mv_log("[Server-UDP] Client requested port %u on host %s -> worker %s",
-               requested_port, client_host.c_str(), worker_addr.c_str());
+        std::thread old_thread;
+        std::shared_ptr<MultiverseServer> old_server;
 
-        if (workers.count(worker_addr) == 0)
         {
-            workers[worker_addr] = std::thread([worker_addr, host, worker_port]() {
-                try {
-                    MultiverseServer worker_server(host, std::to_string(worker_port), TransportType::Udp);
-                    sleep_ms(300);
-                    worker_server.start();
-                    mv_log("[Server-UDP-Worker] system is down now");
-                } catch (const std::exception& e) {
+            std::unique_lock<std::mutex> lock(workers_mutex);
+            auto it = workers.find(worker_addr);
+            if (it != workers.end())
+            {
+                mv_log("[Server-UDP] Stopping old worker on %s", worker_addr.c_str());
+                old_thread = std::move(it->second);
+                old_server = servers[worker_addr];
+                workers.erase(it);
+                servers.erase(worker_addr);
+            }
+        }
+
+        if (old_server)
+        {
+            old_server->stop();
+            mv_log("[Server-UDP] Joining old worker thread on %s", worker_addr.c_str());
+            if (old_thread.joinable())
+                old_thread.join();
+            mv_log("[Server-UDP] Old worker on %s stopped and cleaned up.", worker_addr.c_str());
+        }
+
+        mv_log("[Server-UDP] Launching new worker for %s", worker_addr.c_str());
+        auto server = std::make_shared<MultiverseServer>(host, std::to_string(worker_port), TransportType::Udp);
+
+        {
+            std::lock_guard<std::mutex> lock(workers_mutex);
+            servers[worker_addr] = server;
+            workers[worker_addr] = std::thread([server, worker_addr]() {
+                try
+                {
+                    mv_log("[Server-UDP-Worker] Starting worker on %s", worker_addr.c_str());
+                    server->start();
+                    mv_log("[Server-UDP-Worker] Worker %s exited cleanly.", worker_addr.c_str());
+                }
+                catch (const std::exception &e)
+                {
                     mv_log("[Server-UDP-Worker] Exception on %s: %s", worker_addr.c_str(), e.what());
                 }
             });
         }
 
+        // ✅ Respond to client
         std::vector<std::string> resp = {worker_addr};
-        if (!rawudp::send_parts_to(sock, resp, (sockaddr*)&from, fromlen))
-        {
+        if (!rawudp::send_parts_to(sock, resp, (sockaddr *)&from, fromlen))
             mv_log("[Server-UDP] Failed to send handshake response to client.");
-        }
     }
 
-    mv_log("[Server-UDP] Dispatcher shutting down, waiting for workers...");
-    for (auto &[addr, t] : workers)
-        if (t.joinable()) t.join();
+    // === Dispatcher shutting down ===
+    mv_log("[Server-UDP] Shutdown requested — stopping all workers...");
+
+    {
+        std::unique_lock<std::mutex> lock(workers_mutex);
+        for (auto &[addr, srv] : servers)
+        {
+            if (srv)
+            {
+                mv_log("[Server-UDP] Stopping worker server: %s", addr.c_str());
+                srv->stop();
+            }
+        }
+        lock.unlock();
+
+        // ✅ Join threads outside of lock to prevent deadlock
+        for (auto &[addr, t] : workers)
+        {
+            if (t.joinable())
+            {
+                mv_log("[Server-UDP] Joining worker thread: %s", addr.c_str());
+                t.join();
+            }
+        }
+    }
 
     CLOSESOCK(sock);
 #ifdef _WIN32
     WSACleanup();
 #endif
-    mv_log("[Server-UDP] Dispatcher stopped.");
+    mv_log("[Server-UDP] Dispatcher stopped cleanly.");
 }
+
 #endif

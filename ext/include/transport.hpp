@@ -726,7 +726,10 @@ private:
 
         if (peer_known_)
         {
-            if (!rawudp::recv_parts(sockfd_, in_parts_))
+            if (!rawudp::recv_parts(
+                    sockfd_,
+                    in_parts_,
+                    mode_ == Mode::ClientReady ? -1 : 1000))
             {
                 throw std::runtime_error(make_socket_error_str("UdpTransport: recv failed"));
             }
@@ -735,8 +738,12 @@ private:
         {
             sockaddr_storage sender{};
             socklen_t slen = sizeof(sender);
-            if (!rawudp::recv_parts_from(sockfd_, in_parts_,
-                                         reinterpret_cast<sockaddr *>(&sender), &slen))
+            if (!rawudp::recv_parts_from(
+                    sockfd_,
+                    in_parts_,
+                    reinterpret_cast<sockaddr *>(&sender),
+                    &slen, 
+                    mode_ == Mode::ClientReady ? -1 : 1000))
             {
                 throw std::runtime_error(make_socket_error_str("UdpTransport: recvfrom failed"));
             }

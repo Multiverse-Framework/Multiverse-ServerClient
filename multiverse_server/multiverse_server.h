@@ -145,7 +145,7 @@ public:
      *
      */
     void start();
-
+    void stop();
     // Expose protocol selection
     TransportType transport() const { return protocol_; }
 private:

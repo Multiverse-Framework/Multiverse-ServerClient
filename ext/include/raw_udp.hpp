@@ -155,12 +155,12 @@ inline bool decode_parts(const uint8_t* buf, size_t len, std::vector<std::string
         std::string s(reinterpret_cast<const char*>(p), sz);
         p += sz;
 
-        if (sz > 0)
+        if (sz > 0) {
             mv_log("[rawudp] Handshake: Read data for part %u (hex): %s",
                    i, hex_dump(s).c_str());
-        else
+        } else {
             mv_log("[rawudp] Handshake: Part %u is zero size.", i);
-
+        }
         out.push_back(std::move(s));
     }
 
@@ -188,7 +188,7 @@ inline bool send_parts(socket_t fd, const std::vector<std::string>& parts) {
     return true;
 }
 
-inline bool recv_parts(socket_t fd, std::vector<std::string>& out, int timeout_ms = -1) {
+inline bool recv_parts(socket_t fd, std::vector<std::string>& out, int timeout_ms = 5000) {
     std::vector<uint8_t> buf(MAX_UDP_PAYLOAD);
 
     fd_set rfds;
@@ -239,29 +239,19 @@ inline bool send_parts_to(socket_t fd, const std::vector<std::string>& parts,
 
 inline bool recv_parts_from(socket_t fd, std::vector<std::string>& out,
                             struct sockaddr* from = nullptr, socklen_t* from_len = nullptr,
-                            int timeout_ms = -1) {
+                            int timeout_ms = 1000)
+{
     std::vector<uint8_t> buf(MAX_UDP_PAYLOAD);
 
     fd_set rfds;
     FD_ZERO(&rfds);
     FD_SET(fd, &rfds);
 
-    timeval tv;
-    timeval* tv_ptr = nullptr;
-    if (timeout_ms >= 0) {
-        tv.tv_sec = timeout_ms / 1000;
-        tv.tv_usec = (timeout_ms % 1000) * 1000;
-        tv_ptr = &tv;
-    }
+    timeval tv = {timeout_ms / 1000, (timeout_ms % 1000) * 1000};
 
-    int sel = select(fd + 1, &rfds, nullptr, nullptr, tv_ptr);
-    if (sel <= 0) {
-        if (sel == 0 && timeout_ms >= 0)
-            mv_log("[rawudp] recvfrom timeout after %d ms", timeout_ms);
-        else if (sel < 0)
-            perror("[rawudp] select (recvfrom)");
+    int sel = select(fd + 1, &rfds, nullptr, nullptr, &tv);
+    if (sel <= 0)
         return false;
-    }
 
 #ifdef _WIN32
     int n = ::recvfrom(fd, reinterpret_cast<char*>(buf.data()), (int)buf.size(), 0, from, from_len);
@@ -270,7 +260,6 @@ inline bool recv_parts_from(socket_t fd, std::vector<std::string>& out,
 #endif
     if (n <= 0) return false;
 
-    mv_log("[rawudp] Received %zd bytes from remote peer", (ssize_t)n);
     return decode_parts(buf.data(), (size_t)n, out);
 }
 
