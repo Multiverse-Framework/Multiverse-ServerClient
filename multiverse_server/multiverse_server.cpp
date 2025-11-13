@@ -1718,52 +1718,56 @@ void MultiverseServer::send_receive_data()
 void start_multiverse_server(const std::string &server_socket_addr)
 {
     std::map<std::string, std::thread> workers;
-    zmq::socket_t server_socket = zmq::socket_t(server_context, zmq::socket_type::rep);
+    zmq::socket_t server_socket(server_context, zmq::socket_type::rep);
+    server_socket.set(zmq::sockopt::rcvtimeo, 100); 
+
     server_socket.bind(server_socket_addr);
-    printf("[Server] Create server socket %s\n", server_socket_addr.c_str());
+    mv_log("[Server] Create server socket %s\n", server_socket_addr.c_str());
 
     std::string receive_addr;
+
     while (!ShutdownManager::is_shutdown())
     {
-        try
-        {
-            zmq::message_t request;
-            printf("[Server] Waiting for request...\n");
-            zmq::recv_result_t recv_result_t = server_socket.recv(request, zmq::recv_flags::none);
-            assert(recv_result_t.has_value());
-            receive_addr = request.to_string();
-            printf("[Server] Received request to open socket %s.\n", receive_addr.c_str());
+        zmq::message_t request;
+        zmq::recv_result_t res = server_socket.recv(request, zmq::recv_flags::none);
+
+        if (!res) {
+            if (ShutdownManager::is_shutdown()) {
+                break;
+            }
+            continue;
         }
-        catch (const zmq::error_t &e)
-        {
-            ShutdownManager::request_shutdown();
-            printf("[Server] %s, server socket %s prepares to close.\n", e.what(), server_socket_addr.c_str());
-            break;
-        }
+
+        receive_addr = request.to_string();
+        mv_log("[Server] Received request to open socket %s.\n", receive_addr.c_str());
 
         if (workers.count(receive_addr) == 0)
         {
-            printf("[Server] Created server %s.\n", receive_addr.c_str());
-            workers[receive_addr] = std::thread([receive_addr]()
-                                                { 
-                MultiverseServer multiverse_server(receive_addr); 
-                /* Wait a bit for worker setup */
+            mv_log("[Server] Created server %s.\n", receive_addr.c_str());
+            workers[receive_addr] = std::thread([receive_addr]() {
+                MultiverseServer multiverse_server(receive_addr);
                 sleep_ms(500);
-                multiverse_server.start(); });
+                multiverse_server.start();
+            });
         }
 
         zmq::message_t response(receive_addr.size());
         memcpy(response.data(), receive_addr.c_str(), receive_addr.size());
-        printf("[Server] Sending response to open socket %s.\n", receive_addr.c_str());
         server_socket.send(response, zmq::send_flags::none);
-        printf("[Server] Sent response to open socket %s.\n", receive_addr.c_str());
     }
 
-    for (std::pair<const std::string, std::thread> &worker : workers)
-    {
-        worker.second.join();
+    mv_log("[Server] Shutdown requested, closing REP socket...\n");
+    server_socket.close();
+
+    mv_log("[Server] Stopping workers...\n");
+    for (auto &[addr, t] : workers) {
+        if (t.joinable())
+            t.join();
     }
+
+    mv_log("[Server] All workers stopped.\n");
 }
+
 #endif
 
 #if USE_TCP
