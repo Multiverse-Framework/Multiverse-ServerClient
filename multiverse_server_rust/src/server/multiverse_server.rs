@@ -397,9 +397,20 @@ impl MultiverseServer {
         let (message_spec, payloads) = match self.recv_message().await {
             Ok(msg) => msg,
             Err(e) => {
-                error!("[Server] Receive error: {}", e);
-                crate::utils::set_shutdown();
-                return Ok(ServerState::ReceiveRequestMetaData);
+                if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
+                    match io_err.kind() {
+                        std::io::ErrorKind::UnexpectedEof |
+                        std::io::ErrorKind::ConnectionReset |
+                        std::io::ErrorKind::BrokenPipe => {
+                            // Log as INFO, this is a normal disconnect, not a server error
+                            info!("[Server] Client at socket {} disconnected: {}", self.socket_addr, io_err.kind());
+                            return Err(e); 
+                        }
+                        _ => {} 
+                    }
+                }
+                error!("[Server] Receive error at socket {}: {}", self.socket_addr, e);
+                return Err(e);
             }
         };
 
@@ -951,5 +962,27 @@ impl MultiverseServer {
 
         debug!("[Server] Sent receive data");
         Ok(())
+    }
+}
+
+impl Drop for MultiverseServer {
+    fn drop(&mut self) {
+        info!("[Server] Close socket {}. Shutting down and cleaning up...", self.socket_addr);
+        if !self.simulation_name.is_empty() {
+            let mut worlds = WORLDS.lock();
+            if let Some(world) = worlds.get_mut(&self.world_name) {
+                if world.simulations.remove(&self.simulation_name).is_some() {
+                    info!("[Server] Cleaned up simulation {} from world {} on socket {}",
+                          self.simulation_name, self.world_name, self.socket_addr);
+                } else {
+                    warn!("[Server] Simulation {} not found in world {} for cleanup on socket {}",
+                          self.simulation_name, self.world_name, self.socket_addr);
+                }
+            }
+        } else {
+            debug!("[Server] No simulation name set, no global state to clean up for socket {}", self.socket_addr);
+        }
+
+        info!("[Server] Cleanup complete for socket {}", self.socket_addr);
     }
 }

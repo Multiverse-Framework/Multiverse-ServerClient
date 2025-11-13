@@ -126,6 +126,14 @@ async fn handle_tcp_handshake(
 
     // Spawn worker if not already running
     let mut workers_map = workers.lock().await;
+
+    if let Some(handle) = workers_map.get(&worker_addr) {
+        if handle.is_finished() {
+            info!("[Server-TCP] Worker for {} found but was finished. Removing to restart.", worker_addr);
+            workers_map.remove(&worker_addr);
+        }
+    }
+
     if !workers_map.contains_key(&worker_addr) {
         let worker_host = host.clone();
         let worker_port_str = worker_port.to_string();
@@ -143,6 +151,7 @@ async fn handle_tcp_handshake(
         drop(workers_map);
         sleep(Duration::from_millis(500)).await;
     } else {
+        debug!("[Server-TCP] Worker for {} already running.", worker_addr);
         drop(workers_map);
     }
 
@@ -239,6 +248,14 @@ pub async fn start_udp_dispatcher(host: String, port: String) -> Result<()> {
 
         // Spawn worker if not already running
         let mut workers_map = workers.lock().await;
+
+        if let Some(handle) = workers_map.get(&worker_addr) {
+            if handle.is_finished() {
+                info!("[Server-UDP] Worker for {} found but was finished. Removing to restart.", worker_addr);
+                workers_map.remove(&worker_addr);
+            }
+        }
+
         if !workers_map.contains_key(&worker_addr) {
             let worker_host = host.clone();
             let worker_port_str = worker_port.to_string();
@@ -259,6 +276,7 @@ pub async fn start_udp_dispatcher(host: String, port: String) -> Result<()> {
             drop(workers_map);
             sleep(Duration::from_millis(300)).await;
         } else {
+            debug!("[Server-UDP] Worker for {} already running.", worker_addr);
             drop(workers_map);
         }
 
@@ -344,6 +362,12 @@ pub async fn start_zmq_dispatcher(bind_addr: String) -> Result<()> {
 
                     // Use a blocking std::sync::Mutex to check workers
                     let mut workers_map = workers_clone.lock().unwrap();
+                    if let Some(handle) = workers_map.get(&worker_addr) {
+                        if handle.is_finished() {
+                            info!("[Server-ZMQ] Worker for {} found but was finished. Removing to restart.", worker_addr);
+                            workers_map.remove(&worker_addr);
+                        }
+                    }
                     if !workers_map.contains_key(&worker_addr) {
                         info!("[Server-ZMQ] Launching worker for {}", worker_addr);
                         let worker_addr_clone = worker_addr.clone();
@@ -368,6 +392,8 @@ pub async fn start_zmq_dispatcher(bind_addr: String) -> Result<()> {
                         });
 
                         workers_map.insert(worker_addr.clone(), handle);
+                    } else {
+                        debug!("[Server-ZMQ] Worker for {} already running.", worker_addr);
                     }
                     // Mutex is dropped here
 
