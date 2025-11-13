@@ -59,17 +59,47 @@ $(DLL_JSON): $(OBJS_JSON)
 	$(LINK) $(LDFLAGS) /OUT:$@ /IMPLIB:$(IMPLIB_JSON) $(OBJS_JSON) libzmq-mt-4_3_5.lib jsoncpp.lib
 
 # ===== VARIANT BUILDS =====
-variants: $(foreach v,$(VARIANTS),$(LIBDIR)\multiverse_client_$(v).dll $(LIBDIR)\multiverse_client_json_$(v).dll)
+variants: $(VARIANT_DLLS)
 
-$(LIBDIR)\multiverse_client_$(v).dll: $(SRCS_CLIENT)
-	@echo Building variant $(v) ...
-	$(CC) $(CFLAGS) $(DEFS_$(v)) /Fo"multiverse_client_$(v).obj" $(SRCS_CLIENT)
-	$(LINK) $(LDFLAGS) /OUT:$(LIBDIR)\multiverse_client_$(v).dll /IMPLIB:$(LIBDIR)\multiverse_client_$(v).lib multiverse_client_$(v).obj libzmq-mt-4_3_5.lib
+$(LIBDIR)\multiverse_client_zmq.dll: $(SRCS_CLIENT)
+	@echo Building variant zmq ...
+	$(CC) $(CFLAGS) $(DEFS_zmq) /Fo"multiverse_client_zmq.obj" $(SRCS_CLIENT)
+	$(LINK) $(LDFLAGS) /OUT:$@ /IMPLIB:$(LIBDIR)\multiverse_client_zmq.lib multiverse_client_zmq.obj libzmq-mt-4_3_5.lib
 
-$(LIBDIR)\multiverse_client_json_$(v).dll: $(SRCS_JSON)
-	@echo Building JSON variant $(v) ...
-	$(CC) $(CFLAGS) $(DEFS_$(v)) /Fo"multiverse_client_json_$(v).obj" $(SRCS_JSON)
-	$(LINK) $(LDFLAGS) /OUT:$(LIBDIR)\multiverse_client_json_$(v).dll /IMPLIB:$(LIBDIR)\multiverse_client_json_$(v).lib multiverse_client_json_$(v).obj libzmq-mt-4_3_5.lib jsoncpp.lib
+$(LIBDIR)\multiverse_client_tcp.dll: $(SRCS_CLIENT)
+	@echo Building variant tcp ...
+	$(CC) $(CFLAGS) $(DEFS_tcp) /Fo"multiverse_client_tcp.obj" $(SRCS_CLIENT)
+	$(LINK) $(LDFLAGS) /OUT:$@ /IMPLIB:$(LIBDIR)\multiverse_client_tcp.lib multiverse_client_tcp.obj libzmq-mt-4_3_5.lib
+
+$(LIBDIR)\multiverse_client_udp.dll: $(SRCS_CLIENT)
+	@echo Building variant udp ...
+	$(CC) $(CFLAGS) $(DEFS_udp) /Fo"multiverse_client_udp.obj" $(SRCS_CLIENT)
+	$(LINK) $(LDFLAGS) /OUT:$@ /IMPLIB:$(LIBDIR)\multiverse_client_udp.lib multiverse_client_udp.obj libzmq-mt-4_3_5.lib
+
+$(LIBDIR)\multiverse_client_all.dll: $(SRCS_CLIENT)
+	@echo Building variant all ...
+	$(CC) $(CFLAGS) $(DEFS_all) /Fo"multiverse_client_all.obj" $(SRCS_CLIENT)
+	$(LINK) $(LDFLAGS) /OUT:$@ /IMPLIB:$(LIBDIR)\multiverse_client_all.lib multiverse_client_all.obj libzmq-mt-4_3_5.lib
+
+$(LIBDIR)\multiverse_client_json_zmq.dll: $(SRCS_JSON)
+	@echo Building JSON variant zmq ...
+	$(CC) $(CFLAGS) $(DEFS_zmq) /Fo"multiverse_client_json_zmq.obj" $(SRCS_JSON)
+	$(LINK) $(LDFLAGS) /OUT:$@ /IMPLIB:$(LIBDIR)\multiverse_client_json_zmq.lib multiverse_client_json_zmq.obj libzmq-mt-4_3_5.lib jsoncpp.lib
+
+$(LIBDIR)\multiverse_client_json_tcp.dll: $(SRCS_JSON)
+	@echo Building JSON variant tcp ...
+	$(CC) $(CFLAGS) $(DEFS_tcp) /Fo"multiverse_client_json_tcp.obj" $(SRCS_JSON)
+	$(LINK) $(LDFLAGS) /OUT:$@ /IMPLIB:$(LIBDIR)\multiverse_client_json_tcp.lib multiverse_client_json_tcp.obj libzmq-mt-4_3_5.lib jsoncpp.lib
+
+$(LIBDIR)\multiverse_client_json_udp.dll: $(SRCS_JSON)
+	@echo Building JSON variant udp ...
+	$(CC) $(CFLAGS) $(DEFS_udp) /Fo"multiverse_client_json_udp.obj" $(SRCS_JSON)
+	$(LINK) $(LDFLAGS) /OUT:$@ /IMPLIB:$(LIBDIR)\multiverse_client_json_udp.lib multiverse_client_json_udp.obj libzmq-mt-4_3_5.lib jsoncpp.lib
+
+$(LIBDIR)\multiverse_client_json_all.dll: $(SRCS_JSON)
+	@echo Building JSON variant all ...
+	$(CC) $(CFLAGS) $(DEFS_all) /Fo"multiverse_client_json_all.obj" $(SRCS_JSON)
+	$(LINK) $(LDFLAGS) /OUT:$@ /IMPLIB:$(LIBDIR)\multiverse_client_json_all.lib multiverse_client_json_all.obj libzmq-mt-4_3_5.lib jsoncpp.lib
 
 # ===== COMPILE RULE =====
 .cpp.obj:
