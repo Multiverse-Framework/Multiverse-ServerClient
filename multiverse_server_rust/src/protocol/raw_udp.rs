@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use std::net::SocketAddr;
 use tokio::net::UdpSocket;
+use tokio::time::{timeout, Duration};
 use tracing::trace;
 
 const MAX_UDP_PAYLOAD: usize = 1200;
@@ -106,7 +107,17 @@ pub async fn send_parts(
 /// Receive parts from a connected UDP socket
 pub async fn recv_parts(socket: &UdpSocket) -> Result<Vec<Vec<u8>>> {
     let mut buf = vec![0u8; MAX_UDP_PAYLOAD];
-    let n = socket.recv(&mut buf).await.context("UDP recv failed")?;
+    let result = timeout(Duration::from_millis(100), socket.recv(&mut buf)).await;
+    let n = match result {
+        Ok(Ok(n)) => n,
+        Ok(Err(e)) => {
+            return Err(e).context("UDP recv failed");
+        }
+        Err(_elapsed) => {
+            trace!("[UDP] recv timeout after 1 second");
+            anyhow::bail!("UDP recv timeout");
+        }
+    };
 
     if n == 0 {
         anyhow::bail!("UDP socket closed");
