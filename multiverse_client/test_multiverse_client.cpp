@@ -31,6 +31,25 @@ static const std::map<std::string, size_t> attribute_map_double = {
     {"joint_linear_position", 1},
     {"force", 3},
     {"torque", 3},
+    {"rgb_3840_2160", 0},
+    {"rgb_1280_1024", 0},
+    {"rgb_640_480", 0},
+    {"rgb_128_128", 0},
+};
+
+static const std::map<std::string, size_t> attribute_map_uint8_t = {
+    {"", 0},
+    {"time", 0},
+    {"position", 0},
+    {"quaternion", 0},
+    {"joint_angular_position", 0},
+    {"joint_linear_position", 0},
+    {"force", 0},
+    {"torque", 0},
+    {"rgb_3840_2160", 3840 * 2160 * 3},
+    {"rgb_1280_1024", 1280 * 1024 * 3},
+    {"rgb_640_480", 640 * 480 * 3},
+    {"rgb_128_128", 128 * 128 * 3},
 };
 
 // ---- transport name helper (for logs) ----
@@ -79,7 +98,7 @@ static const char* default_enabled_transport() {
 // ---------------- Connector ----------------
 class MyConnector : public MultiverseClientJson {
 public:
-    enum class Mode { Sender, Receiver, Both1, Both2 };
+    enum class Mode { Sender, Receiver, Both1, Both2, ImageSender, ImageReceiver };
 
     MyConnector(const std::string& world,
                                const std::string& sim,
@@ -141,6 +160,18 @@ public:
                 {"object4", {"quaternion"}},
             };
             break;
+        case Mode::ImageSender:
+            send_objects = {
+                {"image1", {"rgb_3840_2160"}},
+            };
+            receive_objects.clear();
+            break;
+        case Mode::ImageReceiver:
+            send_objects.clear();
+            receive_objects = {
+                {"image1", {"rgb_3840_2160"}},
+            };
+            break;
         }
 
         set_transport(transport);
@@ -152,7 +183,7 @@ public:
         if (world_time) *world_time = 0.0;
         reset(); 
 
-        std::cout << "[Init] mode=" << (mode_==Mode::Sender ? "Sender" : (mode_==Mode::Receiver ? "Receiver" : (mode_==Mode::Both1 ? "Both1" : "Both2")))
+        std::cout << "[Init] mode=" << (mode_==Mode::Sender ? "Sender" : (mode_==Mode::Receiver ? "Receiver" : (mode_==Mode::Both1 ? "Both1" : (mode_==Mode::Both2 ? "Both2" : (mode_==Mode::ImageSender ? "ImageSender" : "ImageReceiver")))))
                   << " transport=" << transport_name(transport)
                   << " host=" << host 
                   << " server=" << server_port << " client=" << client_port << "\n";
@@ -182,10 +213,10 @@ public:
                          const double *data,
                          const size_t data_size)
     {
-        auto it = send_objects_data.find(obj);
-        if (it == send_objects_data.end())
+        auto it = send_objects_double_data.find(obj);
+        if (it == send_objects_double_data.end())
         {
-            LOG_ERROR("Object '" << obj << "' not found in send_objects_data");
+            LOG_ERROR("Object '" << obj << "' not found in send_objects_double_data");
             return;
         }
 
@@ -193,7 +224,7 @@ public:
         auto ip = amap.find(attr);
         if (ip == amap.end())
         {
-            LOG_ERROR("Attribute '" << attr << "' not found in send_objects_data['" << obj << "']");
+            LOG_ERROR("Attribute '" << attr << "' not found in send_objects_double_data['" << obj << "']");
             return;
         }
 
@@ -208,7 +239,45 @@ public:
         {
             if (!ip->second[i])
             {
-                LOG_ERROR("Null pointer in send_objects_data[" << obj << "][" << attr << "][" << i << "]");
+                LOG_ERROR("Null pointer in send_objects_double_data[" << obj << "][" << attr << "][" << i << "]");
+                return;
+            }
+            *(ip->second[i]) = data[i];
+        }
+    }
+
+    void set_send_object(const std::string &obj,
+                         const std::string &attr,
+                         const uint8_t *data,
+                         const size_t data_size)
+    {
+        auto it = send_objects_uint8_t_data.find(obj);
+        if (it == send_objects_uint8_t_data.end())
+        {
+            LOG_ERROR("Object '" << obj << "' not found in send_objects_uint8_t_data");
+            return;
+        }
+
+        auto &amap = it->second;
+        auto ip = amap.find(attr);
+        if (ip == amap.end())
+        {
+            LOG_ERROR("Attribute '" << attr << "' not found in send_objects_uint8_t_data['" << obj << "']");
+            return;
+        }
+
+        if (ip->second.size() != data_size)
+        {
+            LOG_ERROR("Size mismatch for " << obj << "." << attr
+                                           << " expected=" << ip->second.size() << " got=" << data_size);
+            return;
+        }
+
+        for (size_t i = 0; i < data_size; ++i)
+        {
+            if (!ip->second[i])
+            {
+                LOG_ERROR("Null pointer in send_objects_uint8_t_data[" << obj << "][" << attr << "][" << i << "]");
                 return;
             }
             *(ip->second[i]) = data[i];
@@ -226,7 +295,7 @@ public:
         double t = (world_time ? *world_time : -1.0);
         std::cout << "[recv] t=" << t << " s\n";
 
-        for (const auto &[obj, attrs] : receive_objects_data) {
+        for (const auto &[obj, attrs] : receive_objects_double_data) {
             std::cout << "  [" << (obj.empty() ? "(default)" : obj) << "]";
             if (attrs.empty()) {
                 std::cout << " <no-attrs>\n";
@@ -300,60 +369,113 @@ private:
     }
 
     void init_send_and_receive_data() override {
-    const size_t send_needed =
-        std::accumulate(send_objects.begin(), send_objects.end(), size_t(0),
-            [](size_t sum, const auto &so){
-                for (auto &a : so.second)
-                    sum += attribute_map_double.at(a);
-                return sum;
-            });
+        const size_t send_double_needed =
+            std::accumulate(send_objects.begin(), send_objects.end(), size_t(0),
+                [](size_t sum, const auto &so){
+                    for (auto &a : so.second)
+                        sum += attribute_map_double.at(a);
+                    return sum;
+                });
 
-    const size_t recv_needed =
-        std::accumulate(receive_objects.begin(), receive_objects.end(), size_t(0),
-            [](size_t sum, const auto &ro){
-                for (auto &a : ro.second)
-                    sum += attribute_map_double.at(a);
-                return sum;
-            });
+        const size_t recv_double_needed =
+            std::accumulate(receive_objects.begin(), receive_objects.end(), size_t(0),
+                [](size_t sum, const auto &ro){
+                    for (auto &a : ro.second)
+                        sum += attribute_map_double.at(a);
+                    return sum;
+                });
 
-    // Allocate backing memory if not yet done
-    if (!send_buffer.buffer_double.data) {
-        send_buffer.buffer_double.data = new double[send_needed];
-        send_buffer.buffer_double.size = send_needed;
-        std::fill_n(send_buffer.buffer_double.data, send_needed, 0.0);
-    }
-    if (!receive_buffer.buffer_double.data) {
-        receive_buffer.buffer_double.data = new double[recv_needed];
-        receive_buffer.buffer_double.size = recv_needed;
-        std::fill_n(receive_buffer.buffer_double.data, recv_needed, 0.0);
-    }
+        // Allocate backing memory if not yet done
+        if (!send_buffer.buffer_double.data) {
+            send_buffer.buffer_double.data = new double[send_double_needed];
+            send_buffer.buffer_double.size = send_double_needed;
+            std::fill_n(send_buffer.buffer_double.data, send_double_needed, 0.0);
+        }
+        if (!receive_buffer.buffer_double.data) {
+            receive_buffer.buffer_double.data = new double[recv_double_needed];
+            receive_buffer.buffer_double.size = recv_double_needed;
+            std::fill_n(receive_buffer.buffer_double.data, recv_double_needed, 0.0);
+        }
 
-    double *sp = send_buffer.buffer_double.data;
-    for (const auto& so : send_objects) {
-        auto &mp = send_objects_data[so.first];
-        for (const auto& attr : so.second) {
-            auto &vec = mp[attr];
-            vec.clear();
-            size_t n = 0;
-            if (auto it=attribute_map_double.find(attr); it!=attribute_map_double.end())
-                n = it->second;
-            for (size_t i=0;i<n;i++) vec.emplace_back(sp++);
+        double *sp_double = send_buffer.buffer_double.data;
+        for (const auto& so : send_objects) {
+            auto &mp = send_objects_double_data[so.first];
+            for (const auto& attr : so.second) {
+                auto &vec = mp[attr];
+                vec.clear();
+                size_t n = 0;
+                if (auto it=attribute_map_double.find(attr); it!=attribute_map_double.end())
+                    n = it->second;
+                for (size_t i=0;i<n;i++) vec.emplace_back(sp_double++);
+            }
+        }
+
+        double *rp_double = receive_buffer.buffer_double.data;
+        for (const auto& ro : receive_objects) {
+            auto &mp = receive_objects_double_data[ro.first];
+            for (const auto& attr : ro.second) {
+                auto &vec = mp[attr];
+                vec.clear();
+                size_t n = 0;
+                if (auto it=attribute_map_double.find(attr); it!=attribute_map_double.end())
+                    n = it->second;
+                for (size_t i=0;i<n;i++) vec.emplace_back(rp_double++);
+            }
+        }
+
+        const size_t send_uint8_t_needed =
+            std::accumulate(send_objects.begin(), send_objects.end(), size_t(0),
+                [](size_t sum, const auto &so){
+                    for (auto &a : so.second)
+                        sum += attribute_map_uint8_t.at(a);
+                    return sum;
+                });
+
+        const size_t recv_uint8_t_needed =
+            std::accumulate(receive_objects.begin(), receive_objects.end(), size_t(0),
+                [](size_t sum, const auto &ro){
+                    for (auto &a : ro.second)
+                        sum += attribute_map_uint8_t.at(a);
+                    return sum;
+                });
+
+        if (!send_buffer.buffer_uint8_t.data) {
+            send_buffer.buffer_uint8_t.data = new uint8_t[send_uint8_t_needed];
+            send_buffer.buffer_uint8_t.size = send_uint8_t_needed;
+            std::fill_n(send_buffer.buffer_uint8_t.data, send_uint8_t_needed, 0.0);
+        }
+        if (!receive_buffer.buffer_uint8_t.data) {
+            receive_buffer.buffer_uint8_t.data = new uint8_t[recv_uint8_t_needed];
+            receive_buffer.buffer_uint8_t.size = recv_uint8_t_needed;
+            std::fill_n(receive_buffer.buffer_uint8_t.data, recv_uint8_t_needed, 0.0);
+        }
+
+        uint8_t *sp_uint8_t = send_buffer.buffer_uint8_t.data;
+        for (const auto& so : send_objects) {
+            auto &mp = send_objects_uint8_t_data[so.first];
+            for (const auto& attr : so.second) {
+                auto &vec = mp[attr];
+                vec.clear();
+                size_t n = 0;
+                if (auto it=attribute_map_uint8_t.find(attr); it!=attribute_map_uint8_t.end())
+                    n = it->second;
+                for (size_t i=0;i<n;i++) vec.emplace_back(sp_uint8_t++);
+            }
+        }
+
+        uint8_t *rp_uint8_t = receive_buffer.buffer_uint8_t.data;
+        for (const auto& ro : receive_objects) {
+            auto &mp = receive_objects_uint8_t_data[ro.first];
+            for (const auto& attr : ro.second) {
+                auto &vec = mp[attr];
+                vec.clear();
+                size_t n = 0;
+                if (auto it=attribute_map_uint8_t.find(attr); it!=attribute_map_uint8_t.end())
+                    n = it->second;
+                for (size_t i=0;i<n;i++) vec.emplace_back(rp_uint8_t++);
+            }
         }
     }
-
-    double *rp = receive_buffer.buffer_double.data;
-    for (const auto& ro : receive_objects) {
-        auto &mp = receive_objects_data[ro.first];
-        for (const auto& attr : ro.second) {
-            auto &vec = mp[attr];
-            vec.clear();
-            size_t n = 0;
-            if (auto it=attribute_map_double.find(attr); it!=attribute_map_double.end())
-                n = it->second;
-            for (size_t i=0;i<n;i++) vec.emplace_back(rp++);
-        }
-    }
-}
 
     void bind_send_data() override {
         if (world_time) *world_time = get_time_now() - sim_start_time;
@@ -365,6 +487,10 @@ private:
             double pos2[3]  = { 3.0, 4.0 + 0.5*std::sin(t), 5.0 };
             double quat2[4] = { 0.0, std::sin(t), std::cos(t), 0.0 };
             double joint_angular_position[1] = { 0.5 * std::sin(t) };
+            uint8_t rgb_3840_2160[3840 * 2160 * 3];
+            for (size_t i = 0; i < 3840 * 2160 * 3; i++) {
+                rgb_3840_2160[i] = static_cast<uint8_t>((i + static_cast<size_t>(t * 10)) % 256);
+            }
             if (mode_ == Mode::Sender) {
                 set_send_object("object1", "position", pos1, 3);
                 set_send_object("object1", "quaternion", quat1, 4);
@@ -378,13 +504,17 @@ private:
                 set_send_object("object3", "quaternion", quat1, 4);
                 set_send_object("object4", "position", pos2, 3);
                 set_send_object("joint2", "joint_angular_position", joint_angular_position, 1);
+            } else if (mode_ == Mode::ImageSender) {
+                set_send_object("image1", "rgb_3840_2160",
+                                rgb_3840_2160,
+                                3840 * 2160 * 3);
             }
             using clock = std::chrono::steady_clock;
             static auto last = clock::now();
             auto now = clock::now();
             if (now - last >= std::chrono::milliseconds(250)) {
                 last = now;
-                for (auto send_object_data : send_objects_data) {
+                for (auto send_object_data : send_objects_double_data) {
                     const auto& obj = send_object_data.first;
                     const auto& attrs = send_object_data.second;
                     std::cout << "[send] " << obj;
@@ -417,8 +547,20 @@ private:
             delete[] receive_buffer.buffer_double.data;
             receive_buffer.buffer_double.data = nullptr;
         }
-        send_objects_data.clear();
-        receive_objects_data.clear();
+        send_objects_double_data.clear();
+        receive_objects_double_data.clear();
+        if (send_buffer.buffer_uint8_t.data)
+        {
+            delete[] send_buffer.buffer_uint8_t.data;
+            send_buffer.buffer_uint8_t.data = nullptr;
+        }
+        if (receive_buffer.buffer_uint8_t.data)
+        {
+            delete[] receive_buffer.buffer_uint8_t.data;
+            receive_buffer.buffer_uint8_t.data = nullptr;
+        }
+        send_objects_uint8_t_data.clear();
+        receive_objects_uint8_t_data.clear();
     }
     void reset() override { sim_start_time = get_time_now(); }
 
@@ -426,8 +568,10 @@ private:
     std::map<std::string, std::string> meta_data;
     std::map<std::string, std::set<std::string>> send_objects;
     std::map<std::string, std::set<std::string>> receive_objects;
-    std::map<std::string, std::map<std::string, std::vector<double *>>> send_objects_data;
-    std::map<std::string, std::map<std::string, std::vector<double *>>> receive_objects_data;
+    std::map<std::string, std::map<std::string, std::vector<double *>>> send_objects_double_data;
+    std::map<std::string, std::map<std::string, std::vector<double *>>> receive_objects_double_data;
+    std::map<std::string, std::map<std::string, std::vector<uint8_t *>>> send_objects_uint8_t_data;
+    std::map<std::string, std::map<std::string, std::vector<uint8_t *>>> receive_objects_uint8_t_data;
 
     Mode mode_;
     std::thread th_;
@@ -519,7 +663,9 @@ int main(int argc, char** argv) {
                  (args.mode == "receiver" ? MyConnector::Mode::Receiver :
                   (args.mode == "both1" ? MyConnector::Mode::Both1 :
                    (args.mode == "both2" ? MyConnector::Mode::Both2 :
-                    MyConnector::Mode::Sender))));
+                    (args.mode == "imagesender" ? MyConnector::Mode::ImageSender :
+                     (args.mode == "imagereceiver" ? MyConnector::Mode::ImageReceiver :
+                      MyConnector::Mode::Sender))))));
 
     TransportType tt = TransportType::Tcp;
 #if USE_ZMQ

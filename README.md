@@ -101,7 +101,7 @@ This section demonstrates how to start the **server** and **clients** for both *
 ### 🖥️ Linux / macOS
 
 ```bash
-./bin/multiverse_server \
+./bin/multiverse_server_all \
   --transport zmq --bind "tcp://*:7000" \
   --transport tcp --bind 127.0.0.1:8000 \
   --transport udp --bind 127.0.0.1:9000
@@ -110,7 +110,7 @@ This section demonstrates how to start the **server** and **clients** for both *
 ### 🪟 Windows (PowerShell)
 
 ```powershell
-.\bin\multiverse_server.exe `
+.\bin\multiverse_server_all.exe `
   --transport zmq --bind "tcp://*:7000" `
   --transport tcp --bind 127.0.0.1:8000 `
   --transport udp --bind 127.0.0.1:9000
@@ -125,7 +125,7 @@ This section demonstrates how to start the **server** and **clients** for both *
 **Start the Server**
 
 ```bash
-./bin/multiverse_server --transport zmq --bind "tcp://*:7000"
+./bin/multiverse_server_all --transport zmq --bind "tcp://*:7000"
 ```
 
 **Run the Clients**
@@ -133,13 +133,13 @@ This section demonstrates how to start the **server** and **clients** for both *
 Receiver:
 
 ```bash
-./bin/test_multiverse_client --transport zmq --mode receiver --host tcp://127.0.0.1 --server 7000 --data 7001 --sim 1
+./bin/test_multiverse_client_all --transport zmq --mode receiver --host tcp://127.0.0.1 --server 7000 --client 7001 --sim sim_1
 ```
 
 Sender:
 
 ```bash
-./bin/test_multiverse_client --transport zmq --mode sender --host tcp://127.0.0.1 --server 7000 --data 7002 --sim 2
+./bin/test_multiverse_client_all --transport zmq --mode sender --host tcp://127.0.0.1 --server 7000 --client 7002 --sim sim_2
 ```
 
 ### 🪟 Windows (PowerShell)
@@ -147,7 +147,7 @@ Sender:
 **Start the Server**
 
 ```powershell
-.\bin\multiverse_server.exe --transport zmq --bind "tcp://*:7000"
+.\bin\multiverse_server_all.exe --transport zmq --bind "tcp://*:7000"
 ```
 
 **Run the Clients**
@@ -155,13 +155,13 @@ Sender:
 Receiver:
 
 ```powershell
-.\bin\test_multiverse_client.exe --transport zmq --mode receiver --host tcp://127.0.0.1 --server 7000 --data 7001 --sim 1
+.\bin\test_multiverse_client_all.exe --transport zmq --mode receiver --host tcp://127.0.0.1 --server 7000 --client 7001 --sim sim_1
 ```
 
 Sender:
 
 ```powershell
-.\bin\test_multiverse_client.exe --transport zmq --mode sender --host tcp://127.0.0.1 --server 7000 --data 7002 --sim 2
+.\bin\test_multiverse_client_all.exe --transport zmq --mode sender --host tcp://127.0.0.1 --server 7000 --client 7002 --sim sim_2
 ```
 
 ---
@@ -173,7 +173,7 @@ Sender:
 **Start the Server**
 
 ```bash
-./bin/multiverse_server --transport tcp --bind 127.0.0.1:7000
+./bin/multiverse_server_all --transport tcp --bind 127.0.0.1:7000
 ```
 
 **Run the Clients**
@@ -181,13 +181,13 @@ Sender:
 Sender:
 
 ```bash
-./bin/test_multiverse_client --transport tcp --mode sender --host 127.0.0.1 --server 8000 --data 8002 --sim 3
+./bin/test_multiverse_client_all --transport tcp --mode sender --host 127.0.0.1 --server 8000 --client 8002 --sim sim_3
 ```
 
 Receiver:
 
 ```bash
-./bin/test_multiverse_client --transport tcp --mode receiver --host 127.0.0.1 --server 8000 --data 8001 --sim 4
+./bin/test_multiverse_client_all --transport tcp --mode receiver --host 127.0.0.1 --server 8000 --client 8001 --sim sim_4
 ```
 
 ### 🪟 Windows (PowerShell)
@@ -203,13 +203,13 @@ Receiver:
 Sender:
 
 ```powershell
-.\bin\test_multiverse_client.exe --transport tcp --mode sender --host 127.0.0.1 --server 8000 --data 8002 --sim 3
+.\bin\test_multiverse_client.exe --transport tcp --mode sender --host 127.0.0.1 --server 8000 --client 8002 --sim 3
 ```
 
 Receiver:
 
 ```powershell
-.\bin\test_multiverse_client.exe --transport tcp --mode receiver --host 127.0.0.1 --server 8000 --data 8001 --sim 4
+.\bin\test_multiverse_client.exe --transport tcp --mode receiver --host 127.0.0.1 --server 8000 --client 8001 --sim 4
 ```
 
 ---
@@ -229,13 +229,13 @@ Receiver:
 Sender:
 
 ```bash
-./bin/test_multiverse_client --transport udp --mode sender --host 127.0.0.1 --server 7000 --data 7002 --sim 5
+./bin/test_multiverse_client --transport udp --mode sender --host 127.0.0.1 --server 7000 --client 7002 --sim 5
 ```
 
 Receiver:
 
 ```bash
-./bin/test_multiverse_client --transport udp --mode receiver --host 127.0.0.1 --server 7000 --data 7001 --sim 6
+./bin/test_multiverse_client --transport udp --mode receiver --host 127.0.0.1 --server 7000 --client 7001 --sim 6
 ```
 
 ### 🪟 Windows (PowerShell)
@@ -251,13 +251,13 @@ Receiver:
 Sender:
 
 ```powershell
-.\bin\test_multiverse_client.exe --transport udp --mode sender --host 127.0.0.1 --server 7000 --data 7002 --sim 5
+.\bin\test_multiverse_client.exe --transport udp --mode sender --host 127.0.0.1 --server 7000 --client 7002 --sim 5
 ```
 
 Receiver:
 
 ```powershell
-.\bin\test_multiverse_client.exe --transport udp --mode receiver --host 127.0.0.1 --server 7000 --data 7001 --sim 6
+.\bin\test_multiverse_client.exe --transport udp --mode receiver --host 127.0.0.1 --server 7000 --client 7001 --sim 6
 ```
 
 ---
