@@ -1388,7 +1388,7 @@ void MultiverseServer::send_response_meta_data()
         const int message_int = 1;
         send_message(&message_int, sizeof(message_int), /*more*/ true);
         const std::string message_str = response_meta_data_json.toStyledString();
-        printf("message str %s\n", message_str.c_str());
+        // printf("message str %s\n", message_str.c_str());
         send_message(message_str.c_str(), strlen(message_str.c_str()), false);
     }
 }

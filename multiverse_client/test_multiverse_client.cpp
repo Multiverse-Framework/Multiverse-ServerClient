@@ -311,6 +311,22 @@ public:
                 std::cout << "]\n";
             }
         }
+        for (const auto &[obj, attrs] : receive_objects_uint8_t_data) {
+            std::cout << "  [" << (obj.empty() ? "(default)" : obj) << "]";
+            if (attrs.empty()) {
+                std::cout << " <no-attrs>\n";
+                continue;
+            }
+            std::cout << "\n";
+            for (const auto &[name, vec] : attrs) {
+                std::cout << "    " << name << " = [";
+                for (size_t i = 0; i < 10; ++i) {
+                    uint8_t v = vec[i] ? *vec[i] : 1;
+                    std::cout << static_cast<int>(v) << (i + 1 < vec.size() ? ", " : "");
+                }
+                std::cout << "]\n";
+            }
+        }
     }
 
 private:
@@ -345,10 +361,13 @@ private:
                 request_meta_data_json["receive"][p.first].append(a);
 
         request_meta_data_str = request_meta_data_json.toStyledString();
+
+        std::cout << "[Meta] " << request_meta_data_str << "\n";
     }
 
     void bind_response_meta_data() override {
-        std::cout << "[Meta] " << response_meta_data_str << "\n";
+        std::cout << "[Client " << client_port.c_str() << "] Received response meta data.\n";
+        // std::cout << "[Meta] " << response_meta_data_str << "\n";
 
         auto accept = [](const Json::Value& root,
                          std::map<std::string, std::set<std::string>>& out) {
@@ -369,6 +388,7 @@ private:
     }
 
     void init_send_and_receive_data() override {
+        std::cout << "[Init] Initializing double send/receive data buffers...\n";
         const size_t send_double_needed =
             std::accumulate(send_objects.begin(), send_objects.end(), size_t(0),
                 [](size_t sum, const auto &so){
@@ -422,7 +442,8 @@ private:
                 for (size_t i=0;i<n;i++) vec.emplace_back(rp_double++);
             }
         }
-
+        
+        std::cout << "[Init] Initializing uint8_t send/receive data buffers...\n";
         const size_t send_uint8_t_needed =
             std::accumulate(send_objects.begin(), send_objects.end(), size_t(0),
                 [](size_t sum, const auto &so){
@@ -475,19 +496,20 @@ private:
                 for (size_t i=0;i<n;i++) vec.emplace_back(rp_uint8_t++);
             }
         }
+        std::cout << "[Init] Initialization complete.\n";
     }
 
     void bind_send_data() override {
         if (world_time) *world_time = get_time_now() - sim_start_time;
 
-        if (mode_ == Mode::Sender || mode_ == Mode::Both1 || mode_ == Mode::Both2) {
+        if (mode_ == Mode::Sender || mode_ == Mode::Both1 || mode_ == Mode::Both2 || mode_ == Mode::ImageSender) {
             const double t = get_time_now() - sim_start_time;
             double pos1[3]  = { std::sin(t), 2.0, 3.0 };
             double quat1[4] = { std::sin(t), std::cos(t), 0.0, 0.0 };
             double pos2[3]  = { 3.0, 4.0 + 0.5*std::sin(t), 5.0 };
             double quat2[4] = { 0.0, std::sin(t), std::cos(t), 0.0 };
             double joint_angular_position[1] = { 0.5 * std::sin(t) };
-            uint8_t rgb_3840_2160[3840 * 2160 * 3];
+            uint8_t *rgb_3840_2160 = new uint8_t[3840 * 2160 * 3];
             for (size_t i = 0; i < 3840 * 2160 * 3; i++) {
                 rgb_3840_2160[i] = static_cast<uint8_t>((i + static_cast<size_t>(t * 10)) % 256);
             }
@@ -509,6 +531,7 @@ private:
                                 rgb_3840_2160,
                                 3840 * 2160 * 3);
             }
+            delete[] rgb_3840_2160;
             using clock = std::chrono::steady_clock;
             static auto last = clock::now();
             auto now = clock::now();
@@ -517,12 +540,26 @@ private:
                 for (auto send_object_data : send_objects_double_data) {
                     const auto& obj = send_object_data.first;
                     const auto& attrs = send_object_data.second;
-                    std::cout << "[send] " << obj;
+                    std::cout << "[send double] " << obj;
                     for (const auto& attr : attrs) {
                         std::cout << "  " << attr.first << "=[";
                         for (size_t i = 0; i < attr.second.size(); ++i) {
                             double v = attr.second[i] ? *attr.second[i] : std::numeric_limits<double>::quiet_NaN();
                             std::cout << v << (i + 1 < attr.second.size() ? ", " : "");
+                        }
+                        std::cout << "]";
+                    }
+                    std::cout << "\n";
+                }
+                for (auto send_object_data : send_objects_uint8_t_data) {
+                    const auto& obj = send_object_data.first;
+                    const auto& attrs = send_object_data.second;
+                    std::cout << "[send uint8_t] " << obj;
+                    for (const auto& attr : attrs) {
+                        std::cout << "  " << attr.first << "=[";
+                        for (size_t i = 0; i < std::min(size_t(10), attr.second.size()); ++i) {
+                            uint8_t v = attr.second[i] ? *attr.second[i] : std::numeric_limits<uint8_t>::quiet_NaN();
+                            std::cout << static_cast<int>(v) << (i + 1 < 10 ? ", " : "");
                         }
                         std::cout << "]";
                     }
@@ -698,21 +735,8 @@ int main(int argc, char** argv) {
     my_connector.start();
 
     while (!g_exit.load()) {
-        if (mode != MyConnector::Mode::Sender) {
+        if (mode == MyConnector::Mode::ImageReceiver) {
             my_connector.log_receive_snapshot();
-            // const auto& rod = my_connector.receive_map();
-            // auto it1 = rod.find("object1");
-            // auto it2 = rod.find("object2");
-
-            // std::cout << "---\n";
-            // if (it1 != rod.end()) {
-            //     print_attr_or_na(it1->second, "position");   std::cout << "  ";
-            //     print_attr_or_na(it1->second, "quaternion"); std::cout << "\n";
-            // }
-            // if (it2 != rod.end()) {
-            //     print_attr_or_na(it2->second, "position");   std::cout << "  ";
-            //     print_attr_or_na(it2->second, "quaternion"); std::cout << "\n";
-            // }
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
