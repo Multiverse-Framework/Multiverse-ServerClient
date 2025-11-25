@@ -53,16 +53,16 @@ static const std::map<std::string, size_t> attribute_map_uint8_t = {
 };
 
 // ---- transport name helper (for logs) ----
-static const char* transport_name(TransportType t) {
+static const char* transport_name(ClientTransportType t) {
     switch (t) {
 #if USE_ZMQ
-        case TransportType::Zmq: return "zmq";
+        case ClientTransportType::Zmq: return "zmq";
 #endif
 #if USE_TCP
-        case TransportType::Tcp: return "tcp";
+        case ClientTransportType::Tcp: return "tcp";
 #endif
 #if USE_UDP
-        case TransportType::Udp: return "udp";
+        case ClientTransportType::Udp: return "udp";
 #endif
         default: break;
     }
@@ -106,7 +106,7 @@ public:
                                const std::string& server_port_,
                                const std::string& client_port_,
                                Mode mode,
-                               TransportType transport)
+                               ClientTransportType transport)
     : mode_(mode)
     {
         meta_data["world_name"]      = world;
@@ -704,15 +704,15 @@ int main(int argc, char** argv) {
                      (args.mode == "imagereceiver" ? MyConnector::Mode::ImageReceiver :
                       MyConnector::Mode::Sender))))));
 
-    TransportType tt = TransportType::Tcp;
+    ClientTransportType tt = ClientTransportType::Tcp;
 #if USE_ZMQ
-    if (args.transport=="zmq") tt = TransportType::Zmq;
+    if (args.transport=="zmq") tt = ClientTransportType::Zmq;
 #endif
 #if USE_TCP
-    if (args.transport=="tcp") tt = TransportType::Tcp;
+    if (args.transport=="tcp") tt = ClientTransportType::Tcp;
 #endif
 #if USE_UDP
-    if (args.transport=="udp") tt = TransportType::Udp;
+    if (args.transport=="udp") tt = ClientTransportType::Udp;
 #endif
 
     std::cout << "[App] mode=" << args.mode

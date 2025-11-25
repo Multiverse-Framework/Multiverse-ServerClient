@@ -55,9 +55,14 @@ CLIENT_JSON_OBJ = multiverse_client_json.o
 PYBIND_SRC = multiverse_client_pybind.cpp
 PYBIND_OBJ = multiverse_client_pybind.o
 
-# Test
-TEST_CLIENT_SRC = test_multiverse_client_simple.cpp 
+# Test compile flags
 TEST_CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -I.$(PATH_SEP)..$(PATH_SEP)ext$(PATH_SEP)include -I.$(PATH_SEP)..$(PATH_SEP)ext$(PATH_SEP)
+ 
+# Test simple
+TEST_CLIENT_SRC = test_multiverse_client_simple.cpp 
+
+# Test RGB
+TEST_RGB_CLIENT_SRC = test_multiverse_client.cpp 
 
 # Output file paths
 LIB_DIR = ..$(PATH_SEP)lib$(PATH_SEP)$(PLATFORM)
@@ -113,6 +118,7 @@ VARIANT_TARGETS = $(foreach v,$(VARIANTS), \
 TEST_VARIANTS = zmq tcp udp all
 TEST_APP_DIR = ..$(PATH_SEP)bin$(PATH_SEP)
 TEST_APP_VARIANTS = $(foreach v,$(TEST_VARIANTS),$(TEST_APP_DIR)test_multiverse_client_$(v)$(EXE_EXT))
+TEST_APP_RGB_VARIANTS = $(foreach v,$(TEST_VARIANTS),$(TEST_APP_DIR)test_multiverse_client_rgb_$(v)$(EXE_EXT))
 
 TEST_USE_FLAGS_zmq = -DUSE_ZMQ=1 -DUSE_TCP=0 -DUSE_UDP=0
 TEST_USE_FLAGS_tcp = -DUSE_ZMQ=0 -DUSE_TCP=1 -DUSE_UDP=0
@@ -125,9 +131,15 @@ $(TEST_APP_DIR)test_multiverse_client_%$(EXE_EXT): $(TEST_CLIENT_SRC) $(CLIENT_S
 		-L$(EXT_LIB_DIR) -l:libzmq$(EXT_IMP_STATIC) -l:libjsoncpp$(EXT_IMP_STATIC) \
 		$(SYS_LIBS) -o $@
 
+$(TEST_APP_DIR)test_multiverse_client_rgb_%$(EXE_EXT): $(TEST_RGB_CLIENT_SRC) $(CLIENT_SRC) $(CLIENT_JSON_SRC) $(TRANSPORT_CLIENT_SRC)
+	@echo "🔧 Building test variant: $* ..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_USE_FLAGS_$*) $^ \
+		-L$(EXT_LIB_DIR) -l:libzmq$(EXT_IMP_STATIC) -l:libjsoncpp$(EXT_IMP_STATIC) \
+		$(SYS_LIBS) -o $@
+
 # --- Final target ---
 all: $(CLIENT_SHARED_LIB) $(CLIENT_STATIC_LIB) $(CLIENT_JSON_SHARED_LIB) $(CLIENT_JSON_STATIC_LIB) \
-     $(PYBIND_LIB) $(VARIANT_TARGETS) $(TEST_APP_VARIANTS)
+     $(PYBIND_LIB) $(VARIANT_TARGETS) $(TEST_APP_VARIANTS) $(TEST_APP_RGB_VARIANTS)
 	@$(RM) $(CLIENT_OBJ)
 	@$(RM) $(CLIENT_JSON_OBJ)
 	@echo "✅ All variants (ZMQ, TCP, UDP, ALL) and tests built."
@@ -157,4 +169,5 @@ clean:
 	$(RM) $(CLIENT_IMPORT_LIB) $(CLIENT_JSON_IMPORT_LIB) $(PYBIND_LIB)
 	$(RM) $(VARIANT_TARGETS)
 	$(RM) $(TEST_APP_VARIANTS)
+	$(RM) $(TEST_APP_RGB_VARIANTS)
 	@echo "🧹 Clean complete (including all variants and tests)."
