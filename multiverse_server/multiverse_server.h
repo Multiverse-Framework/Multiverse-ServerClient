@@ -27,7 +27,7 @@
 #include <vector>
 #include <json/json.h>
 #include <json/reader.h>
-#include <transport.hpp>
+#include "transport/transport_server.hpp"
 
 /**
  * @brief Attributes that can be sent and received between the server and the
@@ -135,7 +135,7 @@ public:
     // ZMQ data-socket constructor (original behavior)
     explicit MultiverseServer(const std::string& zmq_endpoint);
     // Raw TCP data-socket constructor: bind(host, port) and accept() a single client
-    MultiverseServer(const std::string& host, const std::string& port, TransportType t);
+    MultiverseServer(const std::string& host, const std::string& port, ServerTransportType t);
     
     ~MultiverseServer();
 public:
@@ -147,7 +147,7 @@ public:
     void start();
     void stop();
     // Expose protocol selection
-    TransportType transport() const { return protocol_; }
+    ServerTransportType transport() const { return protocol_; }
 private:
     /**
      * @brief Receive the request meta data or the data from the client,
@@ -264,7 +264,7 @@ private:
     bool send_message(const void* data, size_t len, bool more);
 private:
     // Common
-    TransportType protocol_ = TransportType::Zmq;
+    ServerTransportType protocol_ = ServerTransportType::Zmq;
 
     int tcp_listen_fd = -1;
     int tcp_conn_fd = -1;
@@ -379,7 +379,7 @@ private:
      */
     bool continue_state = false;
     bool instance_shutdown = false;
-    std::unique_ptr<ITransport> transport_ = nullptr;
+    std::unique_ptr<IServerTransport> transport_ = nullptr;
 };
 
 /**

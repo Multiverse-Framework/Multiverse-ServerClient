@@ -37,20 +37,27 @@ else
 endif
 
 EXT_LIB_DIR = .$(PATH_SEP)..$(PATH_SEP)lib$(PATH_SEP)$(PLATFORM)
-CXXFLAGS = -fPIC -std=c++17 -Wall -I.$(PATH_SEP) -I.$(PATH_SEP)..$(PATH_SEP)ext$(PATH_SEP)include
+CXXFLAGS = -fPIC -std=c++17 -Wall -I.$(PATH_SEP) -I.$(PATH_SEP)..$(PATH_SEP)ext$(PATH_SEP)include -I.$(PATH_SEP)..$(PATH_SEP)ext$(PATH_SEP)
 LDFLAGS = -shared -L$(EXT_LIB_DIR)
 
+# Transport client sources
+TRANSPORT_CLIENT_SRC = \
+    transport/client.cpp \
+    transport/tcp_client_transport.cpp \
+    transport/udp_client_transport.cpp \
+    transport/zmq_client_transport.cpp
+
 # Sources
-CLIENT_SRC = multiverse_client.cpp
+CLIENT_SRC = multiverse_client.cpp $(TRANSPORT_CLIENT_SRC)
 CLIENT_OBJ = multiverse_client.o
-CLIENT_JSON_SRC = multiverse_client_json.cpp
+CLIENT_JSON_SRC = multiverse_client_json.cpp $(TRANSPORT_CLIENT_SRC)
 CLIENT_JSON_OBJ = multiverse_client_json.o
 PYBIND_SRC = multiverse_client_pybind.cpp
 PYBIND_OBJ = multiverse_client_pybind.o
 
 # Test
-TEST_CLIENT_SRC = test_multiverse_client.cpp
-TEST_CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -I.$(PATH_SEP)..$(PATH_SEP)ext$(PATH_SEP)include
+TEST_CLIENT_SRC = test_multiverse_client_simple.cpp 
+TEST_CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -I.$(PATH_SEP)..$(PATH_SEP)ext$(PATH_SEP)include -I.$(PATH_SEP)..$(PATH_SEP)ext$(PATH_SEP)
 
 # Output file paths
 LIB_DIR = ..$(PATH_SEP)lib$(PATH_SEP)$(PLATFORM)
@@ -112,7 +119,7 @@ TEST_USE_FLAGS_tcp = -DUSE_ZMQ=0 -DUSE_TCP=1 -DUSE_UDP=0
 TEST_USE_FLAGS_udp = -DUSE_ZMQ=0 -DUSE_TCP=0 -DUSE_UDP=1
 TEST_USE_FLAGS_all = -DUSE_ZMQ=1 -DUSE_TCP=1 -DUSE_UDP=1
 
-$(TEST_APP_DIR)test_multiverse_client_%$(EXE_EXT): $(TEST_CLIENT_SRC) $(CLIENT_SRC) $(CLIENT_JSON_SRC)
+$(TEST_APP_DIR)test_multiverse_client_%$(EXE_EXT): $(TEST_CLIENT_SRC) $(CLIENT_SRC) $(CLIENT_JSON_SRC) $(TRANSPORT_CLIENT_SRC)
 	@echo "🔧 Building test variant: $* ..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_USE_FLAGS_$*) $^ \
 		-L$(EXT_LIB_DIR) -l:libzmq$(EXT_IMP_STATIC) -l:libjsoncpp$(EXT_IMP_STATIC) \

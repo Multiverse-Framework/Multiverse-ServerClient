@@ -2,9 +2,14 @@
 #include <cstring>
 #include <stdexcept>
 #include <cstdio>
-#include "general.hpp"
-
+#include "utils/general.hpp"
+#include "utils/socket_utils.hpp"
+#include "utils/log_utils.hpp"
+#include "transport/tcp_client_transport.hpp"
+#include "transport/udp_client_transport.hpp"
+#include "transport/zmq_client_transport.hpp"
 #include "multiverse_client.h"
+
 enum class EMultiverseClientState : unsigned char {
     None,
     StartConnection,
@@ -19,7 +24,7 @@ enum class EMultiverseClientState : unsigned char {
     BindReceiveData
 };
 
-void MultiverseClient::set_transport(TransportType t) {
+void MultiverseClient::set_transport(ClientTransportType t) {
     transport_type_ = t;
 }
 
@@ -27,18 +32,18 @@ void MultiverseClient::ensure_transport_allocated() {
     if (transport_) return;
     switch (transport_type_) {
 #if USE_ZMQ
-    case TransportType::Zmq:
-        transport_ = new ZmqTransport(ZMQ_REQ);
+    case ClientTransportType::Zmq:
+        transport_ = new ZmqClientTransport();
         break;
 #endif
 #if USE_TCP
-    case TransportType::Tcp:
-        transport_ = new TcpTransport();
+    case ClientTransportType::Tcp:
+        transport_ = new TcpClientTransport();
         break;
 #endif
 #if USE_UDP
-    case TransportType::Udp:
-        transport_ = new UdpTransport();
+    case ClientTransportType::Udp:
+        transport_ = new UdpClientTransport();
         break;
 #endif
     default:
@@ -50,13 +55,13 @@ void MultiverseClient::connect_to_server() {
     if (!transport_) { printf("[Client %s] Transport not initialized.\n", client_port.c_str()); return; }
 
     // Disconnect from previous socket_addr if any
-    transport_->disconnect(socket_addr);
+    transport_->disconnect();
 
     if (ShutdownManager::is_shutdown()) return;
 
     auto current_flag = flag.load();
     if (current_flag == EMultiverseClientState::ReceiveData || current_flag == EMultiverseClientState::ReceiveResponseMetaData) {
-        ITransport::sleep_ms(1000);
+        sleep_ms(1000);
     }
 
     const std::string server_socket_addr = host + ":" + server_port;
@@ -79,7 +84,7 @@ void MultiverseClient::connect_to_server() {
     }
 
     // 3) Close broker connection
-    transport_->disconnect(server_socket_addr);
+    transport_->disconnect();
 
     if (socket_addr.compare(receive_socket_addr) != 0) {
         flag = EMultiverseClientState::None;
@@ -150,9 +155,9 @@ void MultiverseClient::run() {
                client_port.c_str(), state_name, socket_addr.c_str());
         switch (current_flag) {
         case EMultiverseClientState::StartConnection:
-            transport_->disconnect(socket_addr);
+            transport_->disconnect();
             transport_->connect(socket_addr);
-            if (transport_type_ == TransportType::Udp) {
+            if (transport_type_ == ClientTransportType::Udp) {
                 // UDP "connect" is a no-op, so we wait a bit to ensure the server is ready
                 std::this_thread::sleep_for(std::chrono::milliseconds(500));
             }
@@ -248,7 +253,7 @@ void MultiverseClient::run() {
         }
 
         clean_up();
-        transport_->disconnect(socket_addr);
+        transport_->disconnect();
     }
 }
 

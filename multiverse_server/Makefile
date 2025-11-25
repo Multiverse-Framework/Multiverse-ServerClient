@@ -6,18 +6,28 @@ CXX = g++
 # Detect OS
 # --------------------------------------------------------------------
 ifeq ($(OS),Windows_NT)
-    CXXFLAGS = -std=c++17 -Wall -I./ -I./../ext/include
+    CXXFLAGS = -std=c++17 -Wall -I./ -I./transport -I./../ext/include -I./../ext/
     LDFLAGS = -L./../lib/windows -l:libzmq.dll.a -l:libjsoncpp.dll.a -lws2_32 -pthread
     BIN_DIR = ..\bin
     EXE_EXT = .exe
 else
-    CXXFLAGS = -std=c++17 -Wall -I./ -I./../ext/include
+    CXXFLAGS = -std=c++17 -Wall -I./ -I./transport -I./../ext/include -I./../ext/
     LDFLAGS = -L./../lib/linux -l:libzmq.a -l:libjsoncpp.a -pthread
     BIN_DIR = ../bin
     EXE_EXT =
 endif
 
-SRC = main.cpp multiverse_server.cpp transport_runner.cpp
+# --------------------------------------------------------------------
+# Source files
+# --------------------------------------------------------------------
+SRC = \
+    main.cpp \
+    multiverse_server.cpp \
+    transport_runner.cpp \
+    transport/server.cpp \
+    transport/tcp_server_transport.cpp \
+    transport/udp_server_transport.cpp \
+    transport/zmq_server_transport.cpp
 
 # --------------------------------------------------------------------
 # Targets

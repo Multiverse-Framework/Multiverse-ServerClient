@@ -26,7 +26,10 @@
 #include <mutex>
 #include <thread>
 #include <zmq_addon.hpp>
-#include <transport.hpp>
+#include "transport/transport_server.hpp"
+#include "transport/tcp_server_transport.hpp"
+#include "transport/udp_server_transport.hpp"
+#include "transport/zmq_server_transport.hpp"
 #include <atomic>
 #ifdef _WIN32
     #include <winsock2.h>
@@ -49,9 +52,9 @@
     #define GET_LAST_ERR() errno
 #endif
 
-#include "general.hpp"
+#include "utils/general.hpp"
+#include "utils/log_utils.hpp"
 #include "multiverse_server.h"
-#include <log_utils.hpp>
 
 #define STRING_SIZE 2000
 
@@ -311,15 +314,15 @@ static Json::Value sort_meta_data_json(const Json::Value &original)
 }
 
 MultiverseServer::MultiverseServer(const std::string &zmq_endpoint)
-    : protocol_(TransportType::Zmq)
+    : protocol_(ServerTransportType::Zmq)
 {
 #if USE_ZMQ
     socket_addr = zmq_endpoint;
 
-    auto zmq_transport = std::make_unique<ZmqTransport>(ZMQ_REP);
+    auto zmq_transport = std::make_unique<ZmqServerTransport>();
     try
     {
-        zmq_transport->bind(socket_addr);
+        zmq_transport->listen(socket_addr);
     }
     catch (const zmq::error_t &e)
     {
@@ -337,19 +340,18 @@ MultiverseServer::MultiverseServer(const std::string &zmq_endpoint)
 
 MultiverseServer::MultiverseServer(const std::string &host,
                                    const std::string &port,
-                                   TransportType t)
+                                   ServerTransportType t)
     : protocol_(t) 
 {
     tcp_host = host;
     tcp_port = port;
 
-    if (t == TransportType::Tcp) {
+    if (t == ServerTransportType::Tcp) {
 #if USE_TCP
         socket_addr = "rawtcp://" + host + ":" + port;
         printf("[Server] (TCP) Listen on %s:%s.\n", host.c_str(), port.c_str());
 
-        auto tcp_transport = std::make_unique<TcpTransport>();
-        tcp_transport->set_dump(true);
+        auto tcp_transport = std::make_unique<TcpServerTransport>();
         tcp_transport->listen(host + ":" + port);
         if (!tcp_transport->accept()) {
             throw std::runtime_error("[Server] Failed to accept raw TCP connection on "
@@ -361,13 +363,12 @@ MultiverseServer::MultiverseServer(const std::string &host,
 #else
         throw std::runtime_error("[Server] Raw TCP support is not enabled in this build.");
 #endif
-    } else if (t == TransportType::Udp) {
+    } else if (t == ServerTransportType::Udp) {
 #if USE_UDP
         socket_addr = "rawudp://" + host + ":" + port;
         printf("[Server] (UDP) Bind on %s:%s.\n", host.c_str(), port.c_str());
 
-        auto udp_transport = std::make_unique<UdpTransport>();
-        udp_transport->set_dump(true);
+        auto udp_transport = std::make_unique<UdpServerTransport>();
         udp_transport->listen(host + ":" + port);
         transport_ = std::move(udp_transport);
         sockets_need_clean_up[socket_addr] = false;
@@ -411,8 +412,7 @@ bool MultiverseServer::recv_message(int &message_spec_int, std::vector<std::vect
     {
         payloads.emplace_back(frames[i].begin(), frames[i].end());
     }
-    
-    // mv_dump_payloads(payloads);
+
     return true;
 }
 
@@ -462,7 +462,7 @@ MultiverseServer::~MultiverseServer()
 
 void MultiverseServer::stop() {
     instance_shutdown = true;
-    transport_->unbind(socket_addr);
+    transport_->disconnect();
 }
 
 void MultiverseServer::start()
@@ -623,10 +623,10 @@ void MultiverseServer::start()
         printf("[Server] Unbind socket %s.\n", socket_addr.c_str());
         try
         {
-            if (transport_->get_transport_type() == TransportType::Tcp) {
+            if (transport_->type() == ServerTransportType::Tcp) {
                 printf("[Server] Disconnected the tcp socket client %s\n", socket_addr.c_str());
             } else {
-                transport_->unbind(socket_addr);
+                transport_->disconnect();
             }
         }
         catch (const zmq::error_t &e)
@@ -644,7 +644,7 @@ EMultiverseServerState MultiverseServer::receive_data()
         std::vector<std::vector<uint8_t>> payloads;
         if (!recv_message(message_spec_int, payloads))
         {
-            if (transport_->get_transport_type() == TransportType::Zmq) {
+            if (transport_->type() == ServerTransportType::Zmq) {
                 throw zmq::error_t();
             }
             else 
@@ -1929,7 +1929,7 @@ void start_multiverse_server_tcp(const std::string &host, const std::string &por
                                            {
         try {
             mv_log("[Server-TCP-Worker] Starting at thread %s", worker_addr.c_str());
-            MultiverseServer server(host, worker_addr.substr(worker_addr.find(':') + 1), TransportType::Tcp);
+            MultiverseServer server(host, worker_addr.substr(worker_addr.find(':') + 1), ServerTransportType::Tcp);
             server.start();
         } catch (const std::exception& e) {
             mv_log("[Server-TCP-Worker] Exception on %s: %s", worker_addr.c_str(), e.what());
@@ -2076,7 +2076,7 @@ void start_multiverse_server_udp(const std::string &host, const std::string &por
         }
 
         mv_log("[Server-UDP] Launching new worker for %s", worker_addr.c_str());
-        auto server = std::make_shared<MultiverseServer>(host, std::to_string(worker_port), TransportType::Udp);
+        auto server = std::make_shared<MultiverseServer>(host, std::to_string(worker_port), ServerTransportType::Udp);
 
         {
             std::lock_guard<std::mutex> lock(workers_mutex);

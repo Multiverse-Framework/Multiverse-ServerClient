@@ -3,7 +3,7 @@
 #include <string>
 #include <atomic>
 #include <cstdlib>
-#include <transport.hpp>
+#include "transport/transport_client.hpp"
 
 template<class T>
 struct TypedBuffer { T* data=nullptr; size_t size=0; };
@@ -19,7 +19,7 @@ enum class EMultiverseClientState : unsigned char;
 class MultiverseClient {
 public:
     virtual ~MultiverseClient() = default;
-    void set_transport(TransportType t);
+    void set_transport(ClientTransportType t);
 
     void connect(const std::string &in_host, const std::string &in_server_port, const std::string &in_client_port);
     void connect();
@@ -79,8 +79,8 @@ protected:
 
 private:
     std::string socket_addr;
-    TransportType transport_type_ = TransportType::Zmq;
-    ITransport* transport_ = nullptr;
+    ClientTransportType transport_type_ = ClientTransportType::Zmq;
+    IClientTransport* transport_ = nullptr;
     double reset_cool_down = 1.0;
     double reset_time = 0.0;
 

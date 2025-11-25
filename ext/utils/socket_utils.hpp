@@ -2,6 +2,8 @@
 #include <cstdint>
 #include <cstddef>
 #include <stdexcept>
+#include <thread>
+#include <chrono>
 
 #ifdef _WIN32
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
@@ -33,6 +35,7 @@ inline socket_t invalid_socket() { return INVALID_SOCKET; }
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <unistd.h>
