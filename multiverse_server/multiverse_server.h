@@ -27,7 +27,7 @@
 #include <vector>
 #include <json/json.h>
 #include <json/reader.h>
-#include "transport/transport_server.hpp"
+#include "transport/server_transport.hpp"
 
 /**
  * @brief Attributes that can be sent and received between the server and the

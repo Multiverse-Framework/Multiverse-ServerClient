@@ -3,7 +3,7 @@
 #include <string>
 #include <atomic>
 #include <cstdlib>
-#include "transport/transport_client.hpp"
+#include "transport/client_transport.hpp"
 
 template<class T>
 struct TypedBuffer { T* data=nullptr; size_t size=0; };
