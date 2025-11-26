@@ -42,7 +42,6 @@ LDFLAGS = -shared -L$(EXT_LIB_DIR)
 
 # Transport client sources
 TRANSPORT_CLIENT_SRC = \
-    transport/client.cpp \
     transport/tcp_client_transport.cpp \
     transport/udp_client_transport.cpp \
     transport/zmq_client_transport.cpp

@@ -24,7 +24,6 @@ SRC = \
     main.cpp \
     multiverse_server.cpp \
     transport_runner.cpp \
-    transport/server.cpp \
     transport/tcp_server_transport.cpp \
     transport/udp_server_transport.cpp \
     transport/zmq_server_transport.cpp
