@@ -5,9 +5,15 @@
 #include "utils/general.hpp"
 #include "utils/socket_utils.hpp"
 #include "utils/log_utils.hpp"
-#include "transport/tcp_client_transport.hpp"
-#include "transport/udp_client_transport.hpp"
+#if USE_ZMQ
 #include "transport/zmq_client_transport.hpp"
+#endif
+#if USE_TCP
+#include "transport/tcp_client_transport.hpp"
+#endif
+#if USE_UDP
+#include "transport/udp_client_transport.hpp"
+#endif
 #include "multiverse_client.h"
 
 enum class EMultiverseClientState : unsigned char {
