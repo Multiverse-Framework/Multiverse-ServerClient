@@ -1,5 +1,8 @@
 #!/bin/bash
 
+echo "Building multiverse_server_rust..."
+(cd multiverse_server_rust || exit; make clean; make install)
+
 export PATH=/usr/bin
 
 echo "Building multiverse_server..."

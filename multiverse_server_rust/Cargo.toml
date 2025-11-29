@@ -28,7 +28,7 @@ use-tcp = []
 use-udp = []
 
 [[bin]]
-name = "multiverse-server"
+name = "multiverse_server_rust"
 path = "src/main.rs"
 
 [profile.release]
