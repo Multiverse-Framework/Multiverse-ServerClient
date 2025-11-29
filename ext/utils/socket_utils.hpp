@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <thread>
 #include <chrono>
+#include <string>
 
 #ifdef _WIN32
 #define _WINSOCK_DEPRECATED_NO_WARNINGS

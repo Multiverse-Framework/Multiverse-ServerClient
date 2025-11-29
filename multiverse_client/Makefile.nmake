@@ -7,7 +7,7 @@ LINK = link
 LIBDIR = .\..\lib\windows
 
 # Flags
-CFLAGS = /EHsc /c /O2 /MD /I..\ext\include
+CFLAGS = /EHsc /c /O2 /MD /I..\ext\include /I..\ext
 LDFLAGS = /DLL /LIBPATH:$(LIBDIR)
 
 # Source files

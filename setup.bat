@@ -39,6 +39,10 @@ REM Rust Installation / Check
 REM --------------------------------------------------------------------
 echo.
 echo Checking Rust installation...
+
+REM Add cargo to PATH for current session (in case it was just installed)
+set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
+
 where cargo >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo Rust not found. Installing Rust via rustup...
@@ -63,7 +67,7 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 REM --------------------------------------------------------------------
-REM Build multiverse_server (C++ - using Makefile)
+REM Build multiverse_server (C++ - using Makefile via MSYS2)
 REM --------------------------------------------------------------------
 echo.
 echo ============================================================
@@ -74,7 +78,7 @@ powershell -NoProfile -Command "%MSYS2_DIR%\msys2_shell.cmd -defterm -here -no-s
 cd ..
 
 REM --------------------------------------------------------------------
-REM Build multiverse_client (C++ - using Makefile)
+REM Build multiverse_client (C++ - using Makefile via MSYS2)
 REM --------------------------------------------------------------------
 echo.
 echo ============================================================
@@ -96,20 +100,30 @@ if exist "Makefile.nmake" (
 cd ..
 
 REM --------------------------------------------------------------------
-REM Build multiverse_server_rust (Rust - using Makefile)
+REM Build multiverse_server_rust (Rust - NATIVE Windows, not MSYS2)
 REM --------------------------------------------------------------------
 echo.
 echo ============================================================
 echo Building multiverse_server_rust [Rust]
 echo ============================================================
 cd multiverse_server_rust
-if exist "Makefile" (
-    powershell -NoProfile -Command "%MSYS2_DIR%\msys2_shell.cmd -defterm -here -no-start -mingw64 -c 'mingw32-make clean && mingw32-make install'"
-) else (
-    echo No Makefile found, building directly with cargo...
-    cargo build --release
+
+echo Cleaning Rust build...
+cargo clean
+
+echo Building Rust release...
+cargo build --release
+
+REM Copy binary to bin directory
+if exist "target\release\multiverse_server_rust.exe" (
     copy /Y "target\release\multiverse_server_rust.exe" "%BIN_DIR%\multiverse_server_rust.exe"
+    echo Installed: %BIN_DIR%\multiverse_server_rust.exe
+) else (
+    echo ERROR: Rust build failed - binary not found
+    echo Check if Cargo.toml has the correct binary name
+    dir /B target\release\*.exe 2>nul
 )
+
 cd ..
 
 REM --------------------------------------------------------------------
