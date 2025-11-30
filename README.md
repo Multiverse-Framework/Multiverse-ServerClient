@@ -129,7 +129,7 @@ This section demonstrates how to start the **server** and **clients** for **ZMQ*
 ### 🪟 Windows (PowerShell)
 
 ```powershell
-.\bin\multiverse_server_rust.exe `
+.\bin\multiverse_server_cpp.exe `
   --transport zmq --bind "tcp://*:7000" `
   --transport tcp --bind 127.0.0.1:8000 `
   --transport udp --bind 127.0.0.1:9000
