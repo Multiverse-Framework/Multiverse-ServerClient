@@ -1,4 +1,6 @@
-# Makefile for multiverse_client and multiverse_client_json
+.PHONY: default all clean
+
+default: all
 
 CXX     = g++
 AR      = ar
