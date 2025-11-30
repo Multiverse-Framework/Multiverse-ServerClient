@@ -6,10 +6,23 @@ This repository contains the C++ implementations of both `multiverse_server` and
 
 ## 🔧 Prerequisites
 
+### Rust Toolchain
+
+Install Rust via rustup:
+
+**On Linux / macOS:**
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+sudo snap install rustup --classic
+rustup update stable
+```
+
 ### Python Dependency (Linux & Windows)
 
 - pybind11
-  Install via pip:  
+  Install via pip:
+
   ```bash
   pip install pybind11
   ```
@@ -24,8 +37,9 @@ To build on Windows, ensure the **Microsoft C++ Build Tools** are properly insta
 2. During installation, select the **"Desktop development with C++"** workload.
 
 3. This will include the required `vcvarsall.bat` file, typically located at:
-   ```
-   C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat
+
+   ```bat
+   C:\Program Files\Microsoft Visual Studio\2026\Community\VC\Auxiliary\Build\vcvarsall.bat
    ```
 
 > You’ll need to call `vcvarsall.bat` (or use the “Developer Command Prompt for VS”) when building the project to configure the MSVC environment.
@@ -39,9 +53,11 @@ To build on Windows, ensure the **Microsoft C++ Build Tools** are properly insta
 1. Open a terminal (`Ctrl + Alt + T`)
 2. Download this repository:
    - Option 1: Clone via Git:
+  
      ```bash
      git clone https://github.com/Multiverse-Framework/Multiverse-ServerClient
      ```
+
    - Option 2: [Download as ZIP](https://github.com/Multiverse-Framework/Multiverse-ServerClient/archive/refs/heads/main.zip) and extract it.
 
 3. Run the setup script:
@@ -55,9 +71,11 @@ To build on Windows, ensure the **Microsoft C++ Build Tools** are properly insta
 1. Open a Command Prompt (`Win + R` → type `cmd`)
 2. Download this repository:
    - Option 1: Clone via Git:
+
      ```cmd
      git clone https://github.com/Multiverse-Framework/Multiverse-ServerClient
      ```
+
    - Option 2: [Download as ZIP](https://github.com/Multiverse-Framework/Multiverse-ServerClient/archive/refs/heads/main.zip) and extract it.
 
 3. Run the setup script:
@@ -88,7 +106,6 @@ On Windows:
 ```cmd
 .\Multiverse-ServerClient\bin\multiverse_server.exe
 ```
-
 
 ---
 
