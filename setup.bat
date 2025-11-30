@@ -73,7 +73,7 @@ echo.
 echo ============================================================
 echo Building multiverse_server [C++]
 echo ============================================================
-cd multiverse_server
+cd multiverse_server_cpp
 powershell -NoProfile -Command "%MSYS2_DIR%\msys2_shell.cmd -defterm -here -no-start -mingw64 -c 'mingw32-make clean && mingw32-make all'"
 cd ..
 

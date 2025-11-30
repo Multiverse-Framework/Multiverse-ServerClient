@@ -18,6 +18,10 @@ sudo snap install rustup --classic
 rustup update stable
 ```
 
+**On Windows:**
+
+Download and run [rustup-init.exe](https://win.rustup.rs/x86_64) then follow the onscreen instructions.
+
 ### Python Dependency (Linux & Windows)
 
 - pybind11
@@ -111,14 +115,12 @@ On Windows:
 
 ## 🧪 Simple Run Test
 
-This section demonstrates how to start the **server** and **clients** for both **ZMQ** and **TCP** transport layers.
-
-## ⚙️ Option: Multiple Servers (ZMQ + TCP + UDP)
+This section demonstrates how to start the **server** and **clients** for **ZMQ**, **TCP** and **UDP** transport layers.
 
 ### 🖥️ Linux / macOS
 
 ```bash
-./bin/multiverse_server_all \
+./bin/multiverse_server_cpp \
   --transport zmq --bind "tcp://*:7000" \
   --transport tcp --bind 127.0.0.1:8000 \
   --transport udp --bind 127.0.0.1:9000
@@ -127,7 +129,7 @@ This section demonstrates how to start the **server** and **clients** for both *
 ### 🪟 Windows (PowerShell)
 
 ```powershell
-.\bin\multiverse_server_all.exe `
+.\bin\multiverse_server_rust.exe `
   --transport zmq --bind "tcp://*:7000" `
   --transport tcp --bind 127.0.0.1:8000 `
   --transport udp --bind 127.0.0.1:9000
@@ -138,14 +140,6 @@ This section demonstrates how to start the **server** and **clients** for both *
 ## ⚙️ Option 1: ZMQ Transport
 
 ### 🖥️ Linux / macOS
-
-**Start the Server**
-
-```bash
-./bin/multiverse_server_all --transport zmq --bind "tcp://*:7000"
-```
-
-**Run the Clients**
 
 Receiver:
 
@@ -160,14 +154,6 @@ Sender:
 ```
 
 ### 🪟 Windows (PowerShell)
-
-**Start the Server**
-
-```powershell
-.\bin\multiverse_server_all.exe --transport zmq --bind "tcp://*:7000"
-```
-
-**Run the Clients**
 
 Receiver:
 
@@ -187,14 +173,6 @@ Sender:
 
 ### 🖥️ Linux / macOS
 
-**Start the Server**
-
-```bash
-./bin/multiverse_server_all --transport tcp --bind 127.0.0.1:8000
-```
-
-**Run the Clients**
-
 Sender:
 
 ```bash
@@ -208,14 +186,6 @@ Receiver:
 ```
 
 ### 🪟 Windows (PowerShell)
-
-**Start the Server**
-
-```powershell
-.\bin\multiverse_server_all.exe --transport tcp --bind 127.0.0.1:8000
-```
-
-**Run the Clients**
 
 Sender:
 
@@ -235,14 +205,6 @@ Receiver:
 
 ### 🖥️ Linux / macOS
 
-**Start the Server**
-
-```bash
-./bin/multiverse_server_all --transport udp --bind 127.0.0.1:9000
-```
-
-**Run the Clients**
-
 Sender:
 
 ```bash
@@ -256,14 +218,6 @@ Receiver:
 ```
 
 ### 🪟 Windows (PowerShell)
-
-**Start the Server**
-
-```powershell
-.\bin\multiverse_server_all.exe --transport udp --bind 127.0.0.1:9000
-```
-
-**Run the Clients**
 
 Sender:
 
@@ -281,8 +235,8 @@ Receiver:
 
 ### 💡 Notes
 
-- Choose **either `zmq`, `tcp` or `udp`** as your transport mode (not both simultaneously).
-- Port numbers `7000`, `7001`, and `7002` are examples — adjust them if needed.
+- Choose **either `zmq`, `tcp` or `udp`** as your transport mode.
+- All port numbers `7000`, `7001`, or `7002`, etc. are examples — adjust them if needed.
 - Ensure all binaries are in your `PATH` or reference them with relative paths.
 
 ---

@@ -12,6 +12,10 @@
 #include <limits>
 #include <json/json.h>
 
+#ifdef _WIN32
+    #include <winsock2.h>
+#endif
+
 #ifndef LOG_ERROR
 #define LOG_ERROR(x) std::cerr << "[ERROR] " << x << std::endl
 #endif
