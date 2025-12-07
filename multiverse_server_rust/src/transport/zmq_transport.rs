@@ -19,6 +19,12 @@ impl ZmqTransport {
         let context = zmq::Context::new();
         let socket = context.socket(socket_type)?;
 
+        // Set linger to 0 to allow immediate context termination
+        socket.set_linger(0)?;
+
+        // Set receive timeout to 1000ms so we can check shutdown flag periodically
+        socket.set_rcvtimeo(1000)?;
+
         Ok(Self {
             context: Arc::new(context),
             socket: Arc::new(Mutex::new(socket)),
@@ -54,6 +60,8 @@ impl Transport for ZmqTransport {
 
     async fn disconnect(&mut self, endpoint: &str) -> Result<()> {
         let socket = self.socket.lock();
+        // Set linger to 0 to immediately discard pending messages
+        socket.set_linger(0)?;
         socket
             .disconnect(endpoint)
             .context("ZMQ disconnect failed")?;
@@ -82,6 +90,8 @@ impl Transport for ZmqTransport {
 
     async fn unbind(&mut self, endpoint: &str) -> Result<()> {
         let socket = self.socket.lock();
+        // Set linger to 0 to immediately discard pending messages
+        socket.set_linger(0)?;
         socket.unbind(endpoint).context("ZMQ unbind failed")?;
         drop(socket);
         self.endpoint = None;
@@ -143,11 +153,22 @@ impl Transport for ZmqTransport {
         let socket = self.socket.lock();
         let mut parts = Vec::new();
         loop {
-            let msg = socket.recv_msg(0).context("ZMQ recv_multipart failed")?;
-            parts.push(msg.to_vec());
-
-            if !socket.get_rcvmore()? {
-                break;
+            match socket.recv_msg(0) {
+                Ok(msg) => {
+                    parts.push(msg.to_vec());
+                    if !socket.get_rcvmore()? {
+                        break;
+                    }
+                }
+                Err(zmq::Error::EAGAIN) => {
+                    // Timeout - return error so caller can check shutdown
+                    drop(socket);
+                    anyhow::bail!("ZMQ receive timeout");
+                }
+                Err(e) => {
+                    drop(socket);
+                    return Err(e).context("ZMQ recv_multipart failed");
+                }
             }
         }
         drop(socket);
@@ -159,8 +180,13 @@ impl Transport for ZmqTransport {
 
 impl Drop for ZmqTransport {
     fn drop(&mut self) {
+        let socket = self.socket.lock();
+        // Set linger to 0 to immediately discard pending messages
+        if let Err(e) = socket.set_linger(0) {
+            error!("[ZMQ] Error setting linger in drop: {}", e);
+        }
+
         if let Some(endpoint) = &self.endpoint {
-            let socket = self.socket.lock();
             if let Err(e) = socket.disconnect(endpoint) {
                 error!("[ZMQ] Error disconnecting from {}: {}", endpoint, e);
             }

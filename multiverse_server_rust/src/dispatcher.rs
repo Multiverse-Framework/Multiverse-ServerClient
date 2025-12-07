@@ -343,6 +343,9 @@ pub async fn start_zmq_dispatcher(bind_addr: String) -> Result<()> {
         // Set a receive timeout so the loop can check should_shutdown()
         socket.set_rcvtimeo(1000)?; // 1 second timeout
 
+        // Set linger to 0 to allow immediate context termination
+        socket.set_linger(0)?;
+
         let workers_clone = Arc::clone(&workers);
 
         while !should_shutdown() {

@@ -394,25 +394,36 @@ impl MultiverseServer {
     }
 
     async fn receive_data(&mut self) -> Result<ServerState> {
-        let (message_spec, payloads) = match self.recv_message().await {
-            Ok(msg) => msg,
-            Err(e) => {
-                if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
-                    match io_err.kind() {
-                        std::io::ErrorKind::UnexpectedEof |
-                        std::io::ErrorKind::ConnectionReset |
-                        std::io::ErrorKind::BrokenPipe => {
-                            // Log as INFO, this is a normal disconnect, not a server error
-                            info!("[Server] Client at socket {} disconnected: {}", self.socket_addr, io_err.kind());
-                            return Err(e); 
+        loop {
+            let (message_spec, payloads) = match self.recv_message().await {
+                Ok(msg) => msg,
+                Err(e) => {
+                    // Check if it's a timeout error
+                    let error_msg = e.to_string();
+                    if error_msg.contains("receive timeout") {
+                        // Timeout - check shutdown and continue
+                        if crate::utils::should_shutdown() {
+                            return Err(e);
                         }
-                        _ => {} 
+                        continue;
                     }
+
+                    if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
+                        match io_err.kind() {
+                            std::io::ErrorKind::UnexpectedEof |
+                            std::io::ErrorKind::ConnectionReset |
+                            std::io::ErrorKind::BrokenPipe => {
+                                // Log as INFO, this is a normal disconnect, not a server error
+                                info!("[Server] Client at socket {} disconnected: {}", self.socket_addr, io_err.kind());
+                                return Err(e);
+                            }
+                            _ => {}
+                        }
+                    }
+                    error!("[Server] Receive error at socket {}: {}", self.socket_addr, e);
+                    return Err(e);
                 }
-                error!("[Server] Receive error at socket {}: {}", self.socket_addr, e);
-                return Err(e);
-            }
-        };
+            };
 
         // Handle close signal
         if message_spec == 0 && payloads.is_empty() {
@@ -482,6 +493,7 @@ impl MultiverseServer {
         }
 
         anyhow::bail!("Invalid message spec: {}", message_spec)
+        }
     }
 
     fn copy_buffer_data(&mut self, _data: &[u8]) -> Result<()> {
