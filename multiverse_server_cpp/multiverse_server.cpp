@@ -32,24 +32,24 @@
 #include "transport/zmq_server_transport.hpp"
 #include <atomic>
 #ifdef _WIN32
-    #include <winsock2.h>
-    #include <ws2tcpip.h>
-    #ifdef _MSC_VER
-    #pragma comment(lib, "ws2_32.lib")
-    #endif
-    #define CLOSESOCK(s) closesocket(s)
-    #define GET_LAST_ERR() WSAGetLastError()
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#ifdef _MSC_VER
+#pragma comment(lib, "ws2_32.lib")
+#endif
+#define CLOSESOCK(s) closesocket(s)
+#define GET_LAST_ERR() WSAGetLastError()
 #else
-    #include <sys/types.h>
-    #include <sys/socket.h>
-    #include <netinet/in.h>
-    #include <arpa/inet.h>
-    #include <netdb.h>
-    #include <unistd.h>
-    #define SOCKET int
-    #define INVALID_SOCKET (-1)
-    #define CLOSESOCK(s) close(s)
-    #define GET_LAST_ERR() errno
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <unistd.h>
+#define SOCKET int
+#define INVALID_SOCKET (-1)
+#define CLOSESOCK(s) close(s)
+#define GET_LAST_ERR() errno
 #endif
 
 #include "utils/general.hpp"
@@ -64,154 +64,91 @@ zmq::context_t server_context{1};
 
 std::set<std::string> cumulative_attribute_names = {"force", "torque"};
 
-std::map<std::string, std::pair<EAttribute, std::vector<double>>> attribute_map_double =
-    {
-        {"time", {EAttribute::Time, {0.0}}},
-        {"scalar", {EAttribute::Scalar, {std::numeric_limits<double>::quiet_NaN()}}},
-        {"position", {EAttribute::Position, std::vector<double>(3, std::numeric_limits<double>::quiet_NaN())}},
-        {"quaternion", {EAttribute::Quaternion, std::vector<double>(4, std::numeric_limits<double>::quiet_NaN())}},
-        {"linear_velocity", {EAttribute::LinearVelocity, std::vector<double>(3, 0.0)}},
-        {"angular_velocity", {EAttribute::AngularVelocity, std::vector<double>(3, 0.0)}},
-        {"linear_acceleration", {EAttribute::LinearAcceleration, std::vector<double>(3, 0.0)}},
-        {"angular_acceleration", {EAttribute::AngularAcceleration, std::vector<double>(3, 0.0)}},
-        {"odometric_velocity", {EAttribute::OdometricVelocity, std::vector<double>(6, 0.0)}},
-        {"joint_linear_position", {EAttribute::JointLinearPosition, {std::numeric_limits<double>::quiet_NaN()}}},
-        {"joint_angular_position", {EAttribute::JointAngularPosition, {std::numeric_limits<double>::quiet_NaN()}}},
-        {"joint_linear_velocity", {EAttribute::JointLinearVelocity, {std::numeric_limits<double>::quiet_NaN()}}},
-        {"joint_angular_velocity", {EAttribute::JointAngularVelocity, {std::numeric_limits<double>::quiet_NaN()}}},
-        {"joint_linear_acceleration", {EAttribute::JointLinearAcceleration, {std::numeric_limits<double>::quiet_NaN()}}},
-        {"joint_angular_acceleration", {EAttribute::JointAngularAcceleration, {std::numeric_limits<double>::quiet_NaN()}}},
-        {"joint_force", {EAttribute::JointForce, {std::numeric_limits<double>::quiet_NaN()}}},
-        {"joint_torque", {EAttribute::JointTorque, {std::numeric_limits<double>::quiet_NaN()}}},
-        {"cmd_joint_linear_position", {EAttribute::CmdJointLinearPosition, {std::numeric_limits<double>::quiet_NaN()}}},
-        {"cmd_joint_angular_position", {EAttribute::CmdJointAngularPosition, {std::numeric_limits<double>::quiet_NaN()}}},
-        {"cmd_joint_linear_velocity", {EAttribute::CmdJointLinearVelocity, {std::numeric_limits<double>::quiet_NaN()}}},
-        {"cmd_joint_angular_velocity", {EAttribute::CmdJointAngularVelocity, {std::numeric_limits<double>::quiet_NaN()}}},
-        {"cmd_joint_linear_acceleration", {EAttribute::CmdJointLinearAcceleration, {std::numeric_limits<double>::quiet_NaN()}}},
-        {"cmd_joint_angular_acceleration", {EAttribute::CmdJointAngularAcceleration, {std::numeric_limits<double>::quiet_NaN()}}},
-        {"cmd_joint_force", {EAttribute::CmdJointForce, {std::numeric_limits<double>::quiet_NaN()}}},
-        {"cmd_joint_torque", {EAttribute::CmdJointTorque, {std::numeric_limits<double>::quiet_NaN()}}},
-        {"joint_position", {EAttribute::JointPosition, std::vector<double>(3, std::numeric_limits<double>::quiet_NaN())}},
-        {"joint_quaternion", {EAttribute::JointQuaternion, std::vector<double>(4, std::numeric_limits<double>::quiet_NaN())}},
-        {"force", {EAttribute::Force, std::vector<double>(3, 0.0)}},
-        {"torque", {EAttribute::Torque, std::vector<double>(3, 0.0)}}};
+std::map<std::string, std::pair<EAttribute, std::vector<double>>> attribute_map_double = {
+    {"time", {EAttribute::Time, {0.0}}}, {"scalar", {EAttribute::Scalar, {std::numeric_limits<double>::quiet_NaN()}}},
+    {"position", {EAttribute::Position, std::vector<double>(3, std::numeric_limits<double>::quiet_NaN())}},
+    {"quaternion", {EAttribute::Quaternion, std::vector<double>(4, std::numeric_limits<double>::quiet_NaN())}},
+    {"linear_velocity", {EAttribute::LinearVelocity, std::vector<double>(3, 0.0)}},
+    {"angular_velocity", {EAttribute::AngularVelocity, std::vector<double>(3, 0.0)}},
+    {"linear_acceleration", {EAttribute::LinearAcceleration, std::vector<double>(3, 0.0)}},
+    {"angular_acceleration", {EAttribute::AngularAcceleration, std::vector<double>(3, 0.0)}},
+    {"odometric_velocity", {EAttribute::OdometricVelocity, std::vector<double>(6, 0.0)}},
+    {"joint_linear_position", {EAttribute::JointLinearPosition, {std::numeric_limits<double>::quiet_NaN()}}},
+    {"joint_angular_position", {EAttribute::JointAngularPosition, {std::numeric_limits<double>::quiet_NaN()}}},
+    {"joint_linear_velocity", {EAttribute::JointLinearVelocity, {std::numeric_limits<double>::quiet_NaN()}}},
+    {"joint_angular_velocity", {EAttribute::JointAngularVelocity, {std::numeric_limits<double>::quiet_NaN()}}},
+    {"joint_linear_acceleration", {EAttribute::JointLinearAcceleration, {std::numeric_limits<double>::quiet_NaN()}}},
+    {"joint_angular_acceleration", {EAttribute::JointAngularAcceleration, {std::numeric_limits<double>::quiet_NaN()}}},
+    {"joint_force", {EAttribute::JointForce, {std::numeric_limits<double>::quiet_NaN()}}},
+    {"joint_torque", {EAttribute::JointTorque, {std::numeric_limits<double>::quiet_NaN()}}},
+    {"cmd_joint_linear_position", {EAttribute::CmdJointLinearPosition, {std::numeric_limits<double>::quiet_NaN()}}},
+    {"cmd_joint_angular_position", {EAttribute::CmdJointAngularPosition, {std::numeric_limits<double>::quiet_NaN()}}},
+    {"cmd_joint_linear_velocity", {EAttribute::CmdJointLinearVelocity, {std::numeric_limits<double>::quiet_NaN()}}},
+    {"cmd_joint_angular_velocity", {EAttribute::CmdJointAngularVelocity, {std::numeric_limits<double>::quiet_NaN()}}},
+    {"cmd_joint_linear_acceleration",
+        {EAttribute::CmdJointLinearAcceleration, {std::numeric_limits<double>::quiet_NaN()}}},
+    {"cmd_joint_angular_acceleration",
+        {EAttribute::CmdJointAngularAcceleration, {std::numeric_limits<double>::quiet_NaN()}}},
+    {"cmd_joint_force", {EAttribute::CmdJointForce, {std::numeric_limits<double>::quiet_NaN()}}},
+    {"cmd_joint_torque", {EAttribute::CmdJointTorque, {std::numeric_limits<double>::quiet_NaN()}}},
+    {"joint_position", {EAttribute::JointPosition, std::vector<double>(3, std::numeric_limits<double>::quiet_NaN())}},
+    {"joint_quaternion",
+        {EAttribute::JointQuaternion, std::vector<double>(4, std::numeric_limits<double>::quiet_NaN())}},
+    {"force", {EAttribute::Force, std::vector<double>(3, 0.0)}},
+    {"torque", {EAttribute::Torque, std::vector<double>(3, 0.0)}}};
 
-std::map<std::string, std::pair<EAttribute, std::vector<uint8_t>>> attribute_map_uint8_t =
-    {
-        {"rgb_3840_2160", {EAttribute::RGB_3840_2160, std::vector<uint8_t>(3840 * 2160 * 3, std::numeric_limits<uint8_t>::quiet_NaN())}},
-        {"rgb_1280_1024", {EAttribute::RGB_1280_1024, std::vector<uint8_t>(1280 * 1024 * 3, std::numeric_limits<uint8_t>::quiet_NaN())}},
-        {"rgb_640_480", {EAttribute::RGB_640_480, std::vector<uint8_t>(640 * 480 * 3, std::numeric_limits<uint8_t>::quiet_NaN())}},
-        {"rgb_128_128", {EAttribute::RGB_128_128, std::vector<uint8_t>(128 * 128 * 3, std::numeric_limits<uint8_t>::quiet_NaN())}}};
+std::map<std::string, std::pair<EAttribute, std::vector<uint8_t>>> attribute_map_uint8_t = {
+    {"rgb_3840_2160",
+        {EAttribute::RGB_3840_2160, std::vector<uint8_t>(3840 * 2160 * 3, std::numeric_limits<uint8_t>::quiet_NaN())}},
+    {"rgb_1280_1024",
+        {EAttribute::RGB_1280_1024, std::vector<uint8_t>(1280 * 1024 * 3, std::numeric_limits<uint8_t>::quiet_NaN())}},
+    {"rgb_640_480",
+        {EAttribute::RGB_640_480, std::vector<uint8_t>(640 * 480 * 3, std::numeric_limits<uint8_t>::quiet_NaN())}},
+    {"rgb_128_128",
+        {EAttribute::RGB_128_128, std::vector<uint8_t>(128 * 128 * 3, std::numeric_limits<uint8_t>::quiet_NaN())}}};
 
-std::map<std::string, std::pair<EAttribute, std::vector<uint16_t>>> attribute_map_uint16_t =
-    {
-        {"depth_3840_2160", {EAttribute::Depth_3840_2160, std::vector<uint16_t>(3840 * 2160, std::numeric_limits<uint16_t>::quiet_NaN())}},
-        {"depth_1280_1024", {EAttribute::Depth_1280_1024, std::vector<uint16_t>(1280 * 1024, std::numeric_limits<uint16_t>::quiet_NaN())}},
-        {"depth_640_480", {EAttribute::Depth_640_480, std::vector<uint16_t>(640 * 480, std::numeric_limits<uint16_t>::quiet_NaN())}},
-        {"depth_128_128", {EAttribute::Depth_128_128, std::vector<uint16_t>(128 * 128, std::numeric_limits<uint16_t>::quiet_NaN())}}};
+std::map<std::string, std::pair<EAttribute, std::vector<uint16_t>>> attribute_map_uint16_t = {
+    {"depth_3840_2160",
+        {EAttribute::Depth_3840_2160, std::vector<uint16_t>(3840 * 2160, std::numeric_limits<uint16_t>::quiet_NaN())}},
+    {"depth_1280_1024",
+        {EAttribute::Depth_1280_1024, std::vector<uint16_t>(1280 * 1024, std::numeric_limits<uint16_t>::quiet_NaN())}},
+    {"depth_640_480",
+        {EAttribute::Depth_640_480, std::vector<uint16_t>(640 * 480, std::numeric_limits<uint16_t>::quiet_NaN())}},
+    {"depth_128_128",
+        {EAttribute::Depth_128_128, std::vector<uint16_t>(128 * 128, std::numeric_limits<uint16_t>::quiet_NaN())}}};
 
-std::map<std::string, double> unit_scale =
-    {
-        {"s", 1.0},
-        {"ms", 0.001},
-        {"us", 0.00001},
-        {"m", 1.0},
-        {"cm", 0.01},
-        {"rad", 1.0},
-        {"deg", M_PI / 180.0},
-        {"mg", 0.00001},
-        {"g", 0.001},
-        {"kg", 1.0}};
+std::map<std::string, double> unit_scale = {{"s", 1.0}, {"ms", 0.001}, {"us", 0.00001}, {"m", 1.0}, {"cm", 0.01},
+    {"rad", 1.0}, {"deg", M_PI / 180.0}, {"mg", 0.00001}, {"g", 0.001}, {"kg", 1.0}};
 
-std::map<EAttribute, std::map<std::string, std::vector<double>>> handedness_scale =
-    {
-        {EAttribute::Time,
-         {{"rhs", {1.0}},
-          {"lhs", {1.0}}}},
-        {EAttribute::Scalar,
-         {{"rhs", {1.0}},
-          {"lhs", {1.0}}}},
-        {EAttribute::Position,
-         {{"rhs", {1.0, 1.0, 1.0}},
-          {"lhs", {1.0, -1.0, 1.0}}}},
-        {EAttribute::Quaternion,
-         {{"rhs", {1.0, 1.0, 1.0, 1.0}},
-          {"lhs", {-1.0, 1.0, -1.0, 1.0}}}},
-        {EAttribute::LinearVelocity,
-         {{"rhs", {1.0, 1.0, 1.0}},
-          {"lhs", {1.0, 1.0, 1.0}}}},
-        {EAttribute::AngularVelocity,
-         {{"rhs", {1.0, 1.0, 1.0}},
-          {"lhs", {1.0, -1.0, 1.0}}}},
-        {EAttribute::LinearAcceleration,
-         {{"rhs", {1.0, 1.0, 1.0}},
-          {"lhs", {1.0, 1.0, 1.0}}}},
-        {EAttribute::AngularAcceleration,
-         {{"rhs", {1.0, 1.0, 1.0}},
-          {"lhs", {1.0, 1.0, 1.0}}}},
-        {EAttribute::OdometricVelocity,
-         {{"rhs", {1.0, 1.0, 1.0, 1.0, 1.0, 1.0}},
-          {"lhs", {1.0, 1.0, 1.0, 1.0, 1.0, 1.0}}}},
-        {EAttribute::JointLinearPosition,
-         {{"rhs", {1.0}},
-          {"lhs", {-1.0}}}},
-        {EAttribute::JointAngularPosition,
-         {{"rhs", {1.0}},
-          {"lhs", {-1.0}}}},
-        {EAttribute::JointLinearVelocity,
-         {{"rhs", {1.0}},
-          {"lhs", {1.0}}}},
-        {EAttribute::JointAngularVelocity,
-         {{"rhs", {1.0}},
-          {"lhs", {1.0}}}},
-        {EAttribute::JointLinearAcceleration,
-         {{"rhs", {1.0}},
-          {"lhs", {1.0}}}},
-        {EAttribute::JointAngularAcceleration,
-         {{"rhs", {1.0}},
-          {"lhs", {1.0}}}},
-        {EAttribute::JointForce,
-         {{"rhs", {1.0}},
-          {"lhs", {1.0}}}},
-        {EAttribute::JointTorque,
-         {{"rhs", {1.0}},
-          {"lhs", {1.0}}}},
-        {EAttribute::CmdJointLinearPosition,
-         {{"rhs", {1.0}},
-          {"lhs", {-1.0}}}},
-        {EAttribute::CmdJointAngularPosition,
-         {{"rhs", {1.0}},
-          {"lhs", {-1.0}}}},
-        {EAttribute::CmdJointLinearVelocity,
-         {{"rhs", {1.0}},
-          {"lhs", {1.0}}}},
-        {EAttribute::CmdJointAngularVelocity,
-         {{"rhs", {1.0}},
-          {"lhs", {1.0}}}},
-        {EAttribute::CmdJointLinearAcceleration,
-         {{"rhs", {1.0}},
-          {"lhs", {1.0}}}},
-        {EAttribute::CmdJointAngularAcceleration,
-         {{"rhs", {1.0}},
-          {"lhs", {1.0}}}},
-        {EAttribute::CmdJointForce,
-         {{"rhs", {1.0}},
-          {"lhs", {1.0}}}},
-        {EAttribute::CmdJointTorque,
-         {{"rhs", {1.0}},
-          {"lhs", {1.0}}}},
-        {EAttribute::JointPosition,
-         {{"rhs", {1.0, 1.0, 1.0}},
-          {"lhs", {1.0, -1.0, 1.0}}}},
-        {EAttribute::JointQuaternion,
-         {{"rhs", {1.0, 1.0, 1.0, 1.0}},
-          {"lhs", {1.0, 1.0, -1.0, 1.0}}}},
-        {EAttribute::Force,
-         {{"rhs", {1.0, 1.0, 1.0}},
-          {"lhs", {1.0, -1.0, 1.0}}}},
-        {EAttribute::Torque,
-         {{"rhs", {1.0, 1.0, 1.0}},
-          {"lhs", {-1.0, 1.0, -1.0}}}}};
+std::map<EAttribute, std::map<std::string, std::vector<double>>> handedness_scale = {
+    {EAttribute::Time, {{"rhs", {1.0}}, {"lhs", {1.0}}}}, {EAttribute::Scalar, {{"rhs", {1.0}}, {"lhs", {1.0}}}},
+    {EAttribute::Position, {{"rhs", {1.0, 1.0, 1.0}}, {"lhs", {1.0, -1.0, 1.0}}}},
+    {EAttribute::Quaternion, {{"rhs", {1.0, 1.0, 1.0, 1.0}}, {"lhs", {-1.0, 1.0, -1.0, 1.0}}}},
+    {EAttribute::LinearVelocity, {{"rhs", {1.0, 1.0, 1.0}}, {"lhs", {1.0, 1.0, 1.0}}}},
+    {EAttribute::AngularVelocity, {{"rhs", {1.0, 1.0, 1.0}}, {"lhs", {1.0, -1.0, 1.0}}}},
+    {EAttribute::LinearAcceleration, {{"rhs", {1.0, 1.0, 1.0}}, {"lhs", {1.0, 1.0, 1.0}}}},
+    {EAttribute::AngularAcceleration, {{"rhs", {1.0, 1.0, 1.0}}, {"lhs", {1.0, 1.0, 1.0}}}},
+    {EAttribute::OdometricVelocity, {{"rhs", {1.0, 1.0, 1.0, 1.0, 1.0, 1.0}}, {"lhs", {1.0, 1.0, 1.0, 1.0, 1.0, 1.0}}}},
+    {EAttribute::JointLinearPosition, {{"rhs", {1.0}}, {"lhs", {-1.0}}}},
+    {EAttribute::JointAngularPosition, {{"rhs", {1.0}}, {"lhs", {-1.0}}}},
+    {EAttribute::JointLinearVelocity, {{"rhs", {1.0}}, {"lhs", {1.0}}}},
+    {EAttribute::JointAngularVelocity, {{"rhs", {1.0}}, {"lhs", {1.0}}}},
+    {EAttribute::JointLinearAcceleration, {{"rhs", {1.0}}, {"lhs", {1.0}}}},
+    {EAttribute::JointAngularAcceleration, {{"rhs", {1.0}}, {"lhs", {1.0}}}},
+    {EAttribute::JointForce, {{"rhs", {1.0}}, {"lhs", {1.0}}}},
+    {EAttribute::JointTorque, {{"rhs", {1.0}}, {"lhs", {1.0}}}},
+    {EAttribute::CmdJointLinearPosition, {{"rhs", {1.0}}, {"lhs", {-1.0}}}},
+    {EAttribute::CmdJointAngularPosition, {{"rhs", {1.0}}, {"lhs", {-1.0}}}},
+    {EAttribute::CmdJointLinearVelocity, {{"rhs", {1.0}}, {"lhs", {1.0}}}},
+    {EAttribute::CmdJointAngularVelocity, {{"rhs", {1.0}}, {"lhs", {1.0}}}},
+    {EAttribute::CmdJointLinearAcceleration, {{"rhs", {1.0}}, {"lhs", {1.0}}}},
+    {EAttribute::CmdJointAngularAcceleration, {{"rhs", {1.0}}, {"lhs", {1.0}}}},
+    {EAttribute::CmdJointForce, {{"rhs", {1.0}}, {"lhs", {1.0}}}},
+    {EAttribute::CmdJointTorque, {{"rhs", {1.0}}, {"lhs", {1.0}}}},
+    {EAttribute::JointPosition, {{"rhs", {1.0, 1.0, 1.0}}, {"lhs", {1.0, -1.0, 1.0}}}},
+    {EAttribute::JointQuaternion, {{"rhs", {1.0, 1.0, 1.0, 1.0}}, {"lhs", {1.0, 1.0, -1.0, 1.0}}}},
+    {EAttribute::Force, {{"rhs", {1.0, 1.0, 1.0}}, {"lhs", {1.0, -1.0, 1.0}}}},
+    {EAttribute::Torque, {{"rhs", {1.0, 1.0, 1.0}}, {"lhs", {-1.0, 1.0, -1.0}}}}};
 
 enum class EMetaDataState : unsigned char
 {
@@ -225,7 +162,7 @@ enum class EMetaDataState : unsigned char
 
 std::mutex mtx;
 
-template <class T>
+template<class T>
 struct TypedAttribute
 {
     std::vector<T> data;
@@ -247,7 +184,7 @@ struct Object
 
 struct Simulation
 {
-    std::map<std::string, Object *> objects;
+    std::map<std::string, Object*> objects;
     Json::Value request_meta_data_json;
     EMetaDataState meta_data_state;
     std::vector<std::map<std::string, std::vector<std::string>>> api_callbacks;
@@ -265,13 +202,15 @@ std::map<std::string, World> worlds;
 
 static double get_time_now()
 {
-    return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count() / 1000000.0;
+    return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())
+               .count() /
+           1000000.0;
 }
 
-static Json::Value sort_json_array(const Json::Value &original)
+static Json::Value sort_json_array(const Json::Value& original)
 {
     std::vector<std::string> vec;
-    for (const auto &item : original)
+    for (const auto& item : original)
     {
         vec.push_back(item.asString());
     }
@@ -279,7 +218,7 @@ static Json::Value sort_json_array(const Json::Value &original)
     std::sort(vec.begin(), vec.end());
 
     Json::Value sorted;
-    for (const auto &item : vec)
+    for (const auto& item : vec)
     {
         sorted.append(item);
     }
@@ -287,25 +226,26 @@ static Json::Value sort_json_array(const Json::Value &original)
     return sorted;
 }
 
-static Json::Value sort_json_by_key(const Json::Value &original)
+static Json::Value sort_json_by_key(const Json::Value& original)
 {
     std::vector<std::string> keys;
-    for (const std::string &key : original.getMemberNames())
+    for (const std::string& key : original.getMemberNames())
     {
         keys.push_back(key);
     }
     std::sort(keys.begin(), keys.end()); // Sort keys alphabetically
 
     Json::Value sorted(Json::objectValue);
-    for (const std::string &key : keys)
+    for (const std::string& key : keys)
     {
-        sorted[key] = original[key].isObject() ? sort_json_by_key(original[key]) : original[key].isArray() ? sort_json_array(original[key])
-                                                                                                           : original[key];
+        sorted[key] = original[key].isObject()  ? sort_json_by_key(original[key])
+                      : original[key].isArray() ? sort_json_array(original[key])
+                                                : original[key];
     }
     return sorted;
 }
 
-static Json::Value sort_meta_data_json(const Json::Value &original)
+static Json::Value sort_meta_data_json(const Json::Value& original)
 {
     Json::Value sorted(original);
     sorted["send"] = sort_json_by_key(sorted["send"]);
@@ -313,7 +253,7 @@ static Json::Value sort_meta_data_json(const Json::Value &original)
     return sorted;
 }
 
-MultiverseServer::MultiverseServer(const std::string &zmq_endpoint)
+MultiverseServer::MultiverseServer(const std::string& zmq_endpoint)
     : protocol_(ServerTransportType::Zmq)
 {
 #if USE_ZMQ
@@ -324,10 +264,9 @@ MultiverseServer::MultiverseServer(const std::string &zmq_endpoint)
     {
         zmq_transport->listen(socket_addr);
     }
-    catch (const zmq::error_t &e)
+    catch (const zmq::error_t& e)
     {
-        throw std::runtime_error(
-            std::string("[Server] ZMQ bind failed on ") + socket_addr + ": " + e.what());
+        throw std::runtime_error(std::string("[Server] ZMQ bind failed on ") + socket_addr + ": " + e.what());
     }
     transport_ = std::move(zmq_transport);
     sockets_need_clean_up[socket_addr] = false;
@@ -338,24 +277,23 @@ MultiverseServer::MultiverseServer(const std::string &zmq_endpoint)
 #endif
 }
 
-MultiverseServer::MultiverseServer(const std::string &host,
-                                   const std::string &port,
-                                   ServerTransportType t)
-    : protocol_(t) 
+MultiverseServer::MultiverseServer(const std::string& host, const std::string& port, ServerTransportType t)
+    : protocol_(t)
 {
     tcp_host = host;
     tcp_port = port;
 
-    if (t == ServerTransportType::Tcp) {
+    if (t == ServerTransportType::Tcp)
+    {
 #if USE_TCP
         socket_addr = "rawtcp://" + host + ":" + port;
         printf("[Server] (TCP) Listen on %s:%s.\n", host.c_str(), port.c_str());
 
         auto tcp_transport = std::make_unique<TcpServerTransport>();
         tcp_transport->listen(host + ":" + port);
-        if (!tcp_transport->accept()) {
-            throw std::runtime_error("[Server] Failed to accept raw TCP connection on "
-                                     + host + ":" + port);
+        if (!tcp_transport->accept())
+        {
+            throw std::runtime_error("[Server] Failed to accept raw TCP connection on " + host + ":" + port);
         }
         transport_ = std::move(tcp_transport);
         sockets_need_clean_up[socket_addr] = false;
@@ -363,7 +301,9 @@ MultiverseServer::MultiverseServer(const std::string &host,
 #else
         throw std::runtime_error("[Server] Raw TCP support is not enabled in this build.");
 #endif
-    } else if (t == ServerTransportType::Udp) {
+    }
+    else if (t == ServerTransportType::Udp)
+    {
 #if USE_UDP
         socket_addr = "rawudp://" + host + ":" + port;
         printf("[Server] (UDP) Bind on %s:%s.\n", host.c_str(), port.c_str());
@@ -376,12 +316,14 @@ MultiverseServer::MultiverseServer(const std::string &host,
 #else
         throw std::runtime_error("[Server] Raw UDP support is not enabled in this build.");
 #endif
-    } else {
+    }
+    else
+    {
         throw std::runtime_error("[Server] Unsupported TransportType for server");
     }
 }
 
-bool MultiverseServer::recv_message(int &message_spec_int, std::vector<std::vector<uint8_t>> &payloads)
+bool MultiverseServer::recv_message(int& message_spec_int, std::vector<std::vector<uint8_t>>& payloads)
 {
     payloads.clear();
 
@@ -416,7 +358,7 @@ bool MultiverseServer::recv_message(int &message_spec_int, std::vector<std::vect
     return true;
 }
 
-bool MultiverseServer::send_message(const void *data, size_t len, bool more)
+bool MultiverseServer::send_message(const void* data, size_t len, bool more)
 {
     transport_->send(data, len, more);
     return true;
@@ -460,7 +402,8 @@ MultiverseServer::~MultiverseServer()
     sockets_need_clean_up[socket_addr] = false;
 }
 
-void MultiverseServer::stop() {
+void MultiverseServer::stop()
+{
     instance_shutdown = true;
     transport_->disconnect();
 }
@@ -488,7 +431,8 @@ void MultiverseServer::start()
 
         case EMultiverseServerState::BindObjects:
         {
-            printf("[Server] Received meta data at socket %s:\n%s", socket_addr.c_str(), request_meta_data_json.toStyledString().c_str());
+            printf("[Server] Received meta data at socket %s:\n%s", socket_addr.c_str(),
+                request_meta_data_json.toStyledString().c_str());
             bind_meta_data();
 
             mtx.lock();
@@ -536,14 +480,16 @@ void MultiverseServer::start()
             if (worlds[world_name].time == 0.0)
             {
                 printf("[Server] Reset all simulations in world %s.\n", world_name.c_str());
-                for (std::pair<const std::string, Simulation> &simulation : worlds[world_name].simulations)
+                for (std::pair<const std::string, Simulation>& simulation : worlds[world_name].simulations)
                 {
                     printf("[Server] Reset simulation %s.\n", simulation.first.c_str());
                     simulation.second.meta_data_state = EMetaDataState::Reset;
                 }
             }
 
-            if ((strcmp(request_world_name.c_str(), world_name.c_str()) != 0 || strcmp(request_simulation_name.c_str(), simulation_name.c_str()) != 0) && worlds[request_world_name].simulations.count(request_simulation_name) > 0)
+            if ((strcmp(request_world_name.c_str(), world_name.c_str()) != 0 ||
+                    strcmp(request_simulation_name.c_str(), simulation_name.c_str()) != 0) &&
+                worlds[request_world_name].simulations.count(request_simulation_name) > 0)
             {
                 wait_for_other_send_data();
             }
@@ -572,7 +518,7 @@ void MultiverseServer::start()
 
         case EMultiverseServerState::SendReceiveData:
         {
-            Simulation &simulation = worlds[world_name].simulations[simulation_name];
+            Simulation& simulation = worlds[world_name].simulations[simulation_name];
             if (simulation.meta_data_state == EMetaDataState::WaitAfterSendReceiveData)
             {
                 receive_new_request_meta_data();
@@ -581,7 +527,9 @@ void MultiverseServer::start()
             }
             else
             {
-                if ((strcmp(request_world_name.c_str(), world_name.c_str()) != 0 || strcmp(request_simulation_name.c_str(), simulation_name.c_str()) != 0) && worlds[request_world_name].simulations.count(request_simulation_name) > 0)
+                if ((strcmp(request_world_name.c_str(), world_name.c_str()) != 0 ||
+                        strcmp(request_simulation_name.c_str(), simulation_name.c_str()) != 0) &&
+                    worlds[request_world_name].simulations.count(request_simulation_name) > 0)
                 {
                     wait_for_other_send_data();
                 }
@@ -606,14 +554,13 @@ void MultiverseServer::start()
         {
             receive_data();
         }
-        if (flag != EMultiverseServerState::ReceiveSendData &&
-            flag != EMultiverseServerState::ReceiveRequestMetaData)
+        if (flag != EMultiverseServerState::ReceiveSendData && flag != EMultiverseServerState::ReceiveRequestMetaData)
         {
             try
             {
                 send_receive_data();
             }
-            catch (const zmq::error_t &e)
+            catch (const zmq::error_t& e)
             {
                 printf("[Server] %s, socket %s is terminated.\n", e.what(), socket_addr.c_str());
                 return;
@@ -623,13 +570,16 @@ void MultiverseServer::start()
         printf("[Server] Unbind socket %s.\n", socket_addr.c_str());
         try
         {
-            if (transport_->type() == ServerTransportType::Tcp) {
+            if (transport_->type() == ServerTransportType::Tcp)
+            {
                 printf("[Server] Disconnected the tcp socket client %s\n", socket_addr.c_str());
-            } else {
+            }
+            else
+            {
                 transport_->disconnect();
             }
         }
-        catch (const zmq::error_t &e)
+        catch (const zmq::error_t& e)
         {
             printf("[Server] %s, socket %s can not be unbinded.\n", e.what(), socket_addr.c_str());
         }
@@ -644,10 +594,11 @@ EMultiverseServerState MultiverseServer::receive_data()
         std::vector<std::vector<uint8_t>> payloads;
         if (!recv_message(message_spec_int, payloads))
         {
-            if (transport_->type() == ServerTransportType::Zmq) {
+            if (transport_->type() == ServerTransportType::Zmq)
+            {
                 throw zmq::error_t();
             }
-            else 
+            else
             {
                 instance_shutdown = true;
                 sockets_need_clean_up[socket_addr] = true;
@@ -664,7 +615,7 @@ EMultiverseServerState MultiverseServer::receive_data()
         }
         else if (message_spec_int == 1 && payloads.size() == 1)
         {
-            std::string json_str(reinterpret_cast<const char *>(payloads[0].data()), payloads[0].size());
+            std::string json_str(reinterpret_cast<const char*>(payloads[0].data()), payloads[0].size());
             if (reader.parse(json_str, request_meta_data_json) && !request_meta_data_json.empty())
             {
                 request_meta_data_json = sort_meta_data_json(request_meta_data_json);
@@ -678,7 +629,8 @@ EMultiverseServerState MultiverseServer::receive_data()
             }
             else
             {
-                throw std::invalid_argument("[Server] Received invalid message [" + json_str + "] at socket " + socket_addr + ".");
+                throw std::invalid_argument(
+                    "[Server] Received invalid message [" + json_str + "] at socket " + socket_addr + ".");
             }
         }
         else if (message_spec_int >= 2)
@@ -691,65 +643,88 @@ EMultiverseServerState MultiverseServer::receive_data()
 
             if (worlds[world_name].time < 0.0)
             {
-                throw std::invalid_argument("[Server] Received invalid message [time = " + std::to_string(worlds[world_name].time) + "] at socket " + socket_addr + ".");
+                throw std::invalid_argument(
+                    "[Server] Received invalid message [time = " + std::to_string(worlds[world_name].time) +
+                    "] at socket " + socket_addr + ".");
             }
 
             size_t idx = 1;
             if (message_spec_int == 3 && payloads.size() == 2)
             {
-                if (send_buffer.buffer_double.size > 0 && send_buffer.buffer_uint8_t.size == 0 && send_buffer.buffer_uint16_t.size == 0)
+                if (send_buffer.buffer_double.size > 0 && send_buffer.buffer_uint8_t.size == 0 &&
+                    send_buffer.buffer_uint16_t.size == 0)
                 {
-                    std::memcpy(send_buffer.buffer_double.data, payloads[idx].data(), send_buffer.buffer_double.size * sizeof(double));
+                    std::memcpy(send_buffer.buffer_double.data, payloads[idx].data(),
+                        send_buffer.buffer_double.size * sizeof(double));
                 }
-                else if (send_buffer.buffer_double.size == 0 && send_buffer.buffer_uint8_t.size > 0 && send_buffer.buffer_uint16_t.size == 0)
+                else if (send_buffer.buffer_double.size == 0 && send_buffer.buffer_uint8_t.size > 0 &&
+                         send_buffer.buffer_uint16_t.size == 0)
                 {
-                    std::memcpy(send_buffer.buffer_uint8_t.data, payloads[idx].data(), send_buffer.buffer_uint8_t.size * sizeof(uint8_t));
+                    std::memcpy(send_buffer.buffer_uint8_t.data, payloads[idx].data(),
+                        send_buffer.buffer_uint8_t.size * sizeof(uint8_t));
                 }
-                else if (send_buffer.buffer_double.size == 0 && send_buffer.buffer_uint8_t.size == 0 && send_buffer.buffer_uint16_t.size > 0)
+                else if (send_buffer.buffer_double.size == 0 && send_buffer.buffer_uint8_t.size == 0 &&
+                         send_buffer.buffer_uint16_t.size > 0)
                 {
-                    std::memcpy(send_buffer.buffer_uint16_t.data, payloads[idx].data(), send_buffer.buffer_uint16_t.size * sizeof(uint16_t));
+                    std::memcpy(send_buffer.buffer_uint16_t.data, payloads[idx].data(),
+                        send_buffer.buffer_uint16_t.size * sizeof(uint16_t));
                 }
                 else
                 {
-                    throw std::invalid_argument("[Server] Received invalid message [message_spec_int = " + std::to_string(message_spec_int) + "] at socket " + socket_addr + ".");
+                    throw std::invalid_argument("[Server] Received invalid message [message_spec_int = " +
+                                                std::to_string(message_spec_int) + "] at socket " + socket_addr + ".");
                 }
             }
             else if (message_spec_int == 4 && payloads.size() == 3)
             {
-                if (send_buffer.buffer_double.size > 0 && send_buffer.buffer_uint8_t.size > 0 && send_buffer.buffer_uint16_t.size == 0)
+                if (send_buffer.buffer_double.size > 0 && send_buffer.buffer_uint8_t.size > 0 &&
+                    send_buffer.buffer_uint16_t.size == 0)
                 {
-                    std::memcpy(send_buffer.buffer_double.data, payloads[idx + 0].data(), send_buffer.buffer_double.size * sizeof(double));
-                    std::memcpy(send_buffer.buffer_uint8_t.data, payloads[idx + 1].data(), send_buffer.buffer_uint8_t.size * sizeof(uint8_t));
+                    std::memcpy(send_buffer.buffer_double.data, payloads[idx + 0].data(),
+                        send_buffer.buffer_double.size * sizeof(double));
+                    std::memcpy(send_buffer.buffer_uint8_t.data, payloads[idx + 1].data(),
+                        send_buffer.buffer_uint8_t.size * sizeof(uint8_t));
                 }
-                else if (send_buffer.buffer_double.size > 0 && send_buffer.buffer_uint8_t.size == 0 && send_buffer.buffer_uint16_t.size > 0)
+                else if (send_buffer.buffer_double.size > 0 && send_buffer.buffer_uint8_t.size == 0 &&
+                         send_buffer.buffer_uint16_t.size > 0)
                 {
-                    std::memcpy(send_buffer.buffer_double.data, payloads[idx + 0].data(), send_buffer.buffer_double.size * sizeof(double));
-                    std::memcpy(send_buffer.buffer_uint16_t.data, payloads[idx + 1].data(), send_buffer.buffer_uint16_t.size * sizeof(uint16_t));
+                    std::memcpy(send_buffer.buffer_double.data, payloads[idx + 0].data(),
+                        send_buffer.buffer_double.size * sizeof(double));
+                    std::memcpy(send_buffer.buffer_uint16_t.data, payloads[idx + 1].data(),
+                        send_buffer.buffer_uint16_t.size * sizeof(uint16_t));
                 }
-                else if (send_buffer.buffer_double.size == 0 && send_buffer.buffer_uint8_t.size > 0 && send_buffer.buffer_uint16_t.size > 0)
+                else if (send_buffer.buffer_double.size == 0 && send_buffer.buffer_uint8_t.size > 0 &&
+                         send_buffer.buffer_uint16_t.size > 0)
                 {
-                    std::memcpy(send_buffer.buffer_uint8_t.data, payloads[idx + 0].data(), send_buffer.buffer_uint8_t.size * sizeof(uint8_t));
-                    std::memcpy(send_buffer.buffer_uint16_t.data, payloads[idx + 1].data(), send_buffer.buffer_uint16_t.size * sizeof(uint16_t));
+                    std::memcpy(send_buffer.buffer_uint8_t.data, payloads[idx + 0].data(),
+                        send_buffer.buffer_uint8_t.size * sizeof(uint8_t));
+                    std::memcpy(send_buffer.buffer_uint16_t.data, payloads[idx + 1].data(),
+                        send_buffer.buffer_uint16_t.size * sizeof(uint16_t));
                 }
                 else
                 {
-                    throw std::invalid_argument("[Server] Received invalid message [message_spec_int = " + std::to_string(message_spec_int) + "] at socket " + socket_addr + ".");
+                    throw std::invalid_argument("[Server] Received invalid message [message_spec_int = " +
+                                                std::to_string(message_spec_int) + "] at socket " + socket_addr + ".");
                 }
             }
             else if (message_spec_int == 5 && payloads.size() == 4)
             {
-                std::memcpy(send_buffer.buffer_double.data, payloads[idx + 0].data(), send_buffer.buffer_double.size * sizeof(double));
-                std::memcpy(send_buffer.buffer_uint8_t.data, payloads[idx + 1].data(), send_buffer.buffer_uint8_t.size * sizeof(uint8_t));
-                std::memcpy(send_buffer.buffer_uint16_t.data, payloads[idx + 2].data(), send_buffer.buffer_uint16_t.size * sizeof(uint16_t));
+                std::memcpy(send_buffer.buffer_double.data, payloads[idx + 0].data(),
+                    send_buffer.buffer_double.size * sizeof(double));
+                std::memcpy(send_buffer.buffer_uint8_t.data, payloads[idx + 1].data(),
+                    send_buffer.buffer_uint8_t.size * sizeof(uint8_t));
+                std::memcpy(send_buffer.buffer_uint16_t.data, payloads[idx + 2].data(),
+                    send_buffer.buffer_uint16_t.size * sizeof(uint16_t));
             }
             return EMultiverseServerState::BindSendData;
         }
         else
         {
-            throw std::invalid_argument("[Server] Received invalid message [message_spec_int = " + std::to_string(message_spec_int) + "] at socket " + socket_addr + ".");
+            throw std::invalid_argument("[Server] Received invalid message [message_spec_int = " +
+                                        std::to_string(message_spec_int) + "] at socket " + socket_addr + ".");
         }
     }
-    catch (const zmq::error_t &e)
+    catch (const zmq::error_t& e)
     {
         ShutdownManager::request_shutdown();
         printf("[Server] %s, socket %s prepares to close.\n", e.what(), socket_addr.c_str());
@@ -764,36 +739,43 @@ void MultiverseServer::bind_meta_data()
         throw std::invalid_argument("[Server] Request meta data at socket " + socket_addr + " doesn't have meta data.");
     }
 
-    Json::Value &meta_data = request_meta_data_json["meta_data"];
+    Json::Value& meta_data = request_meta_data_json["meta_data"];
     if (!meta_data.isMember("world_name") || meta_data["world_name"].asString().empty())
     {
-        throw std::invalid_argument("[Server] Request meta data at socket " + socket_addr + " doesn't have a world name.");
+        throw std::invalid_argument(
+            "[Server] Request meta data at socket " + socket_addr + " doesn't have a world name.");
     }
     request_world_name = meta_data["world_name"].asString();
 
     if (!meta_data.isMember("simulation_name") || meta_data["simulation_name"].asString().empty())
     {
-        throw std::invalid_argument("[Server] Request meta data at socket " + socket_addr + " doesn't have a simulation name.");
+        throw std::invalid_argument(
+            "[Server] Request meta data at socket " + socket_addr + " doesn't have a simulation name.");
     }
     request_simulation_name = meta_data["simulation_name"].asString();
     if (simulation_name.empty() && worlds[request_world_name].simulations.count(request_simulation_name) > 0)
     {
-        throw std::invalid_argument("[Server] Request meta data at socket " + socket_addr + " requires an existing simulation name (" + request_simulation_name + "). ");
+        throw std::invalid_argument("[Server] Request meta data at socket " + socket_addr +
+                                    " requires an existing simulation name (" + request_simulation_name + "). ");
     }
 
     if (!simulation_name.empty() && worlds[request_world_name].simulations.count(request_simulation_name) == 0)
     {
-        printf("[Server] Socket %s requests a non-existing simulation (%s).\n", socket_addr.c_str(), request_simulation_name.c_str());
+        printf("[Server] Socket %s requests a non-existing simulation (%s).\n", socket_addr.c_str(),
+            request_simulation_name.c_str());
     }
 
-    if (request_simulation_name != simulation_name && !simulation_name.empty() && worlds[request_world_name].simulations.count(request_simulation_name) > 0)
+    if (request_simulation_name != simulation_name && !simulation_name.empty() &&
+        worlds[request_world_name].simulations.count(request_simulation_name) > 0)
     {
         if (request_meta_data_json.isMember("api_callbacks") && !request_meta_data_json["api_callbacks"].empty())
         {
-            throw std::invalid_argument("[Server] Request meta data at socket " + socket_addr + " has API callbacks while requesting a different simulation.");
+            throw std::invalid_argument("[Server] Request meta data at socket " + socket_addr +
+                                        " has API callbacks while requesting a different simulation.");
         }
-        printf("[Server] Socket %s (%s) requests a different simulation (%s).\n", socket_addr.c_str(), simulation_name.c_str(), request_simulation_name.c_str());
-        Simulation &request_simulation = worlds[request_world_name].simulations[request_simulation_name];
+        printf("[Server] Socket %s (%s) requests a different simulation (%s).\n", socket_addr.c_str(),
+            simulation_name.c_str(), request_simulation_name.c_str());
+        Simulation& request_simulation = worlds[request_world_name].simulations[request_simulation_name];
 
         double start = get_time_now();
         double now = start;
@@ -802,21 +784,22 @@ void MultiverseServer::bind_meta_data()
             now = get_time_now();
             if (now - start > 1)
             {
-                printf("[Server] Socket %s is waiting for %s to be in the normal state.\n", socket_addr.c_str(), request_simulation_name.c_str());
+                printf("[Server] Socket %s is waiting for %s to be in the normal state.\n", socket_addr.c_str(),
+                    request_simulation_name.c_str());
                 start = now;
             }
         }
 
-        for (const char *const &type_str : {"send", "receive"})
+        for (const char* const& type_str : {"send", "receive"})
         {
-            for (const std::string &object_name : request_meta_data_json[type_str].getMemberNames())
+            for (const std::string& object_name : request_meta_data_json[type_str].getMemberNames())
             {
                 if (object_name.empty())
                 {
                     break;
                 }
 
-                Json::Value &attributes = request_simulation.request_meta_data_json[type_str][object_name];
+                Json::Value& attributes = request_simulation.request_meta_data_json[type_str][object_name];
 
                 if (request_meta_data_json[type_str][object_name].empty())
                 {
@@ -824,7 +807,7 @@ void MultiverseServer::bind_meta_data()
                     continue;
                 }
 
-                for (const Json::Value &attribute : request_meta_data_json[type_str][object_name])
+                for (const Json::Value& attribute : request_meta_data_json[type_str][object_name])
                 {
                     if (std::find(attributes.begin(), attributes.end(), attribute) == attributes.end())
                     {
@@ -845,16 +828,17 @@ void MultiverseServer::bind_meta_data()
     if (request_meta_data_json.isMember("api_callbacks") && !request_meta_data_json["api_callbacks"].empty())
     {
         const Json::Value api_callbacks = request_meta_data_json["api_callbacks"];
-        for (const std::string &called_simulation_name : api_callbacks.getMemberNames())
+        for (const std::string& called_simulation_name : api_callbacks.getMemberNames())
         {
-            Simulation &simulation = worlds[world_name].simulations[called_simulation_name];
+            Simulation& simulation = worlds[world_name].simulations[called_simulation_name];
             simulation.meta_data_state = EMetaDataState::WaitAfterSendReceiveData;
         }
     }
 
     worlds[world_name].simulations[simulation_name].request_meta_data_json = request_meta_data_json;
-    EMetaDataState &meta_data_state = worlds[world_name].simulations[simulation_name].meta_data_state;
-    if (request_simulation_name == simulation_name && meta_data_state == EMetaDataState::WaitAfterOtherSendRequestMetaData)
+    EMetaDataState& meta_data_state = worlds[world_name].simulations[simulation_name].meta_data_state;
+    if (request_simulation_name == simulation_name &&
+        meta_data_state == EMetaDataState::WaitAfterOtherSendRequestMetaData)
     {
         meta_data_state = EMetaDataState::WaitAfterOtherNormal;
     }
@@ -869,103 +853,125 @@ void MultiverseServer::bind_meta_data()
     const std::string mass_unit = meta_data.isMember("mass_unit") ? meta_data["mass_unit"].asString() : "kg";
     const std::string time_unit = meta_data.isMember("time_unit") ? meta_data["time_unit"].asString() : "s";
 
-    std::map<EAttribute, std::vector<double>> &conversion_map_double = conversion_map.conversion_map_double;
-    for (const std::pair<const std::string, std::pair<EAttribute, std::vector<double>>> &attribute : attribute_map_double)
+    std::map<EAttribute, std::vector<double>>& conversion_map_double = conversion_map.conversion_map_double;
+    for (const std::pair<const std::string, std::pair<EAttribute, std::vector<double>>>& attribute :
+        attribute_map_double)
     {
         conversion_map_double.emplace(attribute.second);
     }
 
     std::for_each(conversion_map_double[EAttribute::Time].begin(), conversion_map_double[EAttribute::Time].end(),
-                  [time_unit](double &time)
-                  { time = unit_scale[time_unit]; });
+        [time_unit](double& time) { time = unit_scale[time_unit]; });
 
     std::for_each(conversion_map_double[EAttribute::Scalar].begin(), conversion_map_double[EAttribute::Scalar].end(),
-                  [](double &scalar)
-                  { scalar = 1.0; });
+        [](double& scalar) { scalar = 1.0; });
 
-    std::for_each(conversion_map_double[EAttribute::Position].begin(), conversion_map_double[EAttribute::Position].end(),
-                  [length_unit](double &position)
-                  { position = unit_scale[length_unit]; });
+    std::for_each(conversion_map_double[EAttribute::Position].begin(),
+        conversion_map_double[EAttribute::Position].end(),
+        [length_unit](double& position) { position = unit_scale[length_unit]; });
 
-    std::for_each(conversion_map_double[EAttribute::Quaternion].begin(), conversion_map_double[EAttribute::Quaternion].end(),
-                  [](double &quaternion)
-                  { quaternion = 1.0; });
+    std::for_each(conversion_map_double[EAttribute::Quaternion].begin(),
+        conversion_map_double[EAttribute::Quaternion].end(), [](double& quaternion) { quaternion = 1.0; });
 
-    std::for_each(conversion_map_double[EAttribute::LinearVelocity].begin(), conversion_map_double[EAttribute::LinearVelocity].end(),
-                  [length_unit, time_unit](double &linear_velocity)
-                  { linear_velocity = unit_scale[length_unit] / unit_scale[time_unit]; });
+    std::for_each(conversion_map_double[EAttribute::LinearVelocity].begin(),
+        conversion_map_double[EAttribute::LinearVelocity].end(), [length_unit, time_unit](double& linear_velocity) {
+            linear_velocity = unit_scale[length_unit] / unit_scale[time_unit];
+        });
 
-    std::for_each(conversion_map_double[EAttribute::AngularVelocity].begin(), conversion_map_double[EAttribute::AngularVelocity].end(),
-                  [angle_unit, time_unit](double &angular_velocity)
-                  { angular_velocity = unit_scale[angle_unit] / unit_scale[time_unit]; });
+    std::for_each(conversion_map_double[EAttribute::AngularVelocity].begin(),
+        conversion_map_double[EAttribute::AngularVelocity].end(), [angle_unit, time_unit](double& angular_velocity) {
+            angular_velocity = unit_scale[angle_unit] / unit_scale[time_unit];
+        });
 
-    std::for_each(conversion_map_double[EAttribute::LinearAcceleration].begin(), conversion_map_double[EAttribute::LinearAcceleration].end(),
-                  [length_unit, time_unit](double &linear_acceleration)
-                  { linear_acceleration = unit_scale[length_unit] / (unit_scale[time_unit] * unit_scale[time_unit]); });
+    std::for_each(conversion_map_double[EAttribute::LinearAcceleration].begin(),
+        conversion_map_double[EAttribute::LinearAcceleration].end(),
+        [length_unit, time_unit](double& linear_acceleration) {
+            linear_acceleration = unit_scale[length_unit] / (unit_scale[time_unit] * unit_scale[time_unit]);
+        });
 
-    std::for_each(conversion_map_double[EAttribute::AngularAcceleration].begin(), conversion_map_double[EAttribute::AngularAcceleration].end(),
-                  [angle_unit, time_unit](double &angular_acceleration)
-                  { angular_acceleration = unit_scale[angle_unit] / (unit_scale[time_unit] * unit_scale[time_unit]); });
+    std::for_each(conversion_map_double[EAttribute::AngularAcceleration].begin(),
+        conversion_map_double[EAttribute::AngularAcceleration].end(),
+        [angle_unit, time_unit](double& angular_acceleration) {
+            angular_acceleration = unit_scale[angle_unit] / (unit_scale[time_unit] * unit_scale[time_unit]);
+        });
 
-    std::for_each(conversion_map_double[EAttribute::JointLinearPosition].begin(), conversion_map_double[EAttribute::JointLinearPosition].end(),
-                  [length_unit](double &joint_linear_position)
-                  { joint_linear_position = unit_scale[length_unit]; });
+    std::for_each(conversion_map_double[EAttribute::JointLinearPosition].begin(),
+        conversion_map_double[EAttribute::JointLinearPosition].end(),
+        [length_unit](double& joint_linear_position) { joint_linear_position = unit_scale[length_unit]; });
 
-    std::for_each(conversion_map_double[EAttribute::JointAngularPosition].begin(), conversion_map_double[EAttribute::JointAngularPosition].end(),
-                  [angle_unit](double &joint_angular_position)
-                  { joint_angular_position = unit_scale[angle_unit]; });
+    std::for_each(conversion_map_double[EAttribute::JointAngularPosition].begin(),
+        conversion_map_double[EAttribute::JointAngularPosition].end(),
+        [angle_unit](double& joint_angular_position) { joint_angular_position = unit_scale[angle_unit]; });
 
-    std::for_each(conversion_map_double[EAttribute::JointLinearVelocity].begin(), conversion_map_double[EAttribute::JointLinearVelocity].end(),
-                  [length_unit, time_unit](double &joint_linear_velocity)
-                  { joint_linear_velocity = unit_scale[length_unit] / unit_scale[time_unit]; });
+    std::for_each(conversion_map_double[EAttribute::JointLinearVelocity].begin(),
+        conversion_map_double[EAttribute::JointLinearVelocity].end(),
+        [length_unit, time_unit](double& joint_linear_velocity) {
+            joint_linear_velocity = unit_scale[length_unit] / unit_scale[time_unit];
+        });
 
-    std::for_each(conversion_map_double[EAttribute::JointAngularVelocity].begin(), conversion_map_double[EAttribute::JointAngularVelocity].end(),
-                  [angle_unit, time_unit](double &joint_angular_velocity)
-                  { joint_angular_velocity = unit_scale[angle_unit] / unit_scale[time_unit]; });
+    std::for_each(conversion_map_double[EAttribute::JointAngularVelocity].begin(),
+        conversion_map_double[EAttribute::JointAngularVelocity].end(),
+        [angle_unit, time_unit](double& joint_angular_velocity) {
+            joint_angular_velocity = unit_scale[angle_unit] / unit_scale[time_unit];
+        });
 
-    std::for_each(conversion_map_double[EAttribute::JointLinearAcceleration].begin(), conversion_map_double[EAttribute::JointLinearAcceleration].end(),
-                  [length_unit, time_unit](double &joint_linear_acceleration)
-                  { joint_linear_acceleration = unit_scale[length_unit] / (unit_scale[time_unit] * unit_scale[time_unit]); });
+    std::for_each(conversion_map_double[EAttribute::JointLinearAcceleration].begin(),
+        conversion_map_double[EAttribute::JointLinearAcceleration].end(),
+        [length_unit, time_unit](double& joint_linear_acceleration) {
+            joint_linear_acceleration = unit_scale[length_unit] / (unit_scale[time_unit] * unit_scale[time_unit]);
+        });
 
-    std::for_each(conversion_map_double[EAttribute::JointAngularAcceleration].begin(), conversion_map_double[EAttribute::JointAngularAcceleration].end(),
-                  [angle_unit, time_unit](double &joint_angular_acceleration)
-                  { joint_angular_acceleration = unit_scale[angle_unit] / (unit_scale[time_unit] * unit_scale[time_unit]); });
+    std::for_each(conversion_map_double[EAttribute::JointAngularAcceleration].begin(),
+        conversion_map_double[EAttribute::JointAngularAcceleration].end(),
+        [angle_unit, time_unit](double& joint_angular_acceleration) {
+            joint_angular_acceleration = unit_scale[angle_unit] / (unit_scale[time_unit] * unit_scale[time_unit]);
+        });
 
-    std::for_each(conversion_map_double[EAttribute::JointForce].begin(), conversion_map_double[EAttribute::JointForce].end(),
-                  [mass_unit, length_unit, time_unit](double &force)
-                  { force = unit_scale[mass_unit] * unit_scale[length_unit] / (unit_scale[time_unit] * unit_scale[time_unit]); });
+    std::for_each(conversion_map_double[EAttribute::JointForce].begin(),
+        conversion_map_double[EAttribute::JointForce].end(), [mass_unit, length_unit, time_unit](double& force) {
+            force = unit_scale[mass_unit] * unit_scale[length_unit] / (unit_scale[time_unit] * unit_scale[time_unit]);
+        });
 
-    std::for_each(conversion_map_double[EAttribute::JointTorque].begin(), conversion_map_double[EAttribute::JointTorque].end(),
-                  [mass_unit, length_unit, time_unit](double &torque)
-                  { torque = unit_scale[mass_unit] * unit_scale[length_unit] * unit_scale[length_unit] / (unit_scale[time_unit] * unit_scale[time_unit]); });
+    std::for_each(conversion_map_double[EAttribute::JointTorque].begin(),
+        conversion_map_double[EAttribute::JointTorque].end(), [mass_unit, length_unit, time_unit](double& torque) {
+            torque = unit_scale[mass_unit] * unit_scale[length_unit] * unit_scale[length_unit] /
+                     (unit_scale[time_unit] * unit_scale[time_unit]);
+        });
 
-    std::for_each(conversion_map_double[EAttribute::JointPosition].begin(), conversion_map_double[EAttribute::JointPosition].end(),
-                  [length_unit](double &joint_position)
-                  { joint_position = unit_scale[length_unit]; });
+    std::for_each(conversion_map_double[EAttribute::JointPosition].begin(),
+        conversion_map_double[EAttribute::JointPosition].end(),
+        [length_unit](double& joint_position) { joint_position = unit_scale[length_unit]; });
 
-    std::for_each(conversion_map_double[EAttribute::JointQuaternion].begin(), conversion_map_double[EAttribute::JointQuaternion].end(),
-                  [](double &joint_quaternion)
-                  { joint_quaternion = 1.0; });
+    std::for_each(conversion_map_double[EAttribute::JointQuaternion].begin(),
+        conversion_map_double[EAttribute::JointQuaternion].end(),
+        [](double& joint_quaternion) { joint_quaternion = 1.0; });
 
     std::for_each(conversion_map_double[EAttribute::Force].begin(), conversion_map_double[EAttribute::Force].end(),
-                  [mass_unit, length_unit, time_unit](double &force)
-                  { force = unit_scale[mass_unit] * unit_scale[length_unit] / (unit_scale[time_unit] * unit_scale[time_unit]); });
+        [mass_unit, length_unit, time_unit](double& force) {
+            force = unit_scale[mass_unit] * unit_scale[length_unit] / (unit_scale[time_unit] * unit_scale[time_unit]);
+        });
 
     std::for_each(conversion_map_double[EAttribute::Torque].begin(), conversion_map_double[EAttribute::Torque].end(),
-                  [mass_unit, length_unit, time_unit](double &torque)
-                  { torque = unit_scale[mass_unit] * unit_scale[length_unit] * unit_scale[length_unit] / (unit_scale[time_unit] * unit_scale[time_unit]); });
+        [mass_unit, length_unit, time_unit](double& torque) {
+            torque = unit_scale[mass_unit] * unit_scale[length_unit] * unit_scale[length_unit] /
+                     (unit_scale[time_unit] * unit_scale[time_unit]);
+        });
 
-    conversion_map_double[EAttribute::CmdJointAngularPosition] = conversion_map_double[EAttribute::JointAngularPosition];
+    conversion_map_double[EAttribute::CmdJointAngularPosition] =
+        conversion_map_double[EAttribute::JointAngularPosition];
 
     conversion_map_double[EAttribute::CmdJointLinearPosition] = conversion_map_double[EAttribute::JointLinearPosition];
 
     conversion_map_double[EAttribute::CmdJointLinearVelocity] = conversion_map_double[EAttribute::JointLinearVelocity];
 
-    conversion_map_double[EAttribute::CmdJointAngularVelocity] = conversion_map_double[EAttribute::JointAngularVelocity];
+    conversion_map_double[EAttribute::CmdJointAngularVelocity] =
+        conversion_map_double[EAttribute::JointAngularVelocity];
 
-    conversion_map_double[EAttribute::CmdJointLinearAcceleration] = conversion_map_double[EAttribute::JointLinearAcceleration];
+    conversion_map_double[EAttribute::CmdJointLinearAcceleration] =
+        conversion_map_double[EAttribute::JointLinearAcceleration];
 
-    conversion_map_double[EAttribute::CmdJointAngularAcceleration] = conversion_map_double[EAttribute::JointAngularAcceleration];
+    conversion_map_double[EAttribute::CmdJointAngularAcceleration] =
+        conversion_map_double[EAttribute::JointAngularAcceleration];
 
     conversion_map_double[EAttribute::CmdJointForce] = conversion_map_double[EAttribute::Force];
 
@@ -980,24 +986,27 @@ void MultiverseServer::bind_meta_data()
         conversion_map_double[EAttribute::OdometricVelocity][i] = unit_scale[angle_unit] / unit_scale[time_unit];
     }
 
-    for (std::pair<const EAttribute, std::vector<double>> &conversion_scale : conversion_map_double)
+    for (std::pair<const EAttribute, std::vector<double>>& conversion_scale : conversion_map_double)
     {
         std::vector<double>::iterator conversion_scale_it = conversion_scale.second.begin();
-        std::vector<double>::iterator handedness_scale_it = handedness_scale[conversion_scale.first][handedness].begin();
+        std::vector<double>::iterator handedness_scale_it =
+            handedness_scale[conversion_scale.first][handedness].begin();
         for (size_t i = 0; i < conversion_scale.second.size(); i++)
         {
             *(conversion_scale_it++) *= *(handedness_scale_it++);
         }
     }
 
-    std::map<EAttribute, std::vector<uint8_t>> &conversion_map_uint8_t = conversion_map.conversion_map_uint8_t;
-    for (const std::pair<const std::string, std::pair<EAttribute, std::vector<uint8_t>>> &attribute : attribute_map_uint8_t)
+    std::map<EAttribute, std::vector<uint8_t>>& conversion_map_uint8_t = conversion_map.conversion_map_uint8_t;
+    for (const std::pair<const std::string, std::pair<EAttribute, std::vector<uint8_t>>>& attribute :
+        attribute_map_uint8_t)
     {
         conversion_map_uint8_t.emplace(attribute.second);
     }
 
-    std::map<EAttribute, std::vector<uint16_t>> &conversion_map_uint16_t = conversion_map.conversion_map_uint16_t;
-    for (const std::pair<const std::string, std::pair<EAttribute, std::vector<uint16_t>>> &attribute : attribute_map_uint16_t)
+    std::map<EAttribute, std::vector<uint16_t>>& conversion_map_uint16_t = conversion_map.conversion_map_uint16_t;
+    for (const std::pair<const std::string, std::pair<EAttribute, std::vector<uint16_t>>>& attribute :
+        attribute_map_uint16_t)
     {
         conversion_map_uint16_t.emplace(attribute.second);
     }
@@ -1010,18 +1019,18 @@ void MultiverseServer::bind_meta_data()
 void MultiverseServer::bind_send_objects()
 {
     send_objects_json = request_meta_data_json["send"];
-    std::map<std::string, Object> &objects = worlds[world_name].objects;
-    Simulation &simulation = worlds[world_name].simulations[simulation_name];
+    std::map<std::string, Object>& objects = worlds[world_name].objects;
+    Simulation& simulation = worlds[world_name].simulations[simulation_name];
 
-    for (const std::string &object_name : send_objects_json.getMemberNames())
+    for (const std::string& object_name : send_objects_json.getMemberNames())
     {
         response_meta_data_json["send"][object_name] = Json::objectValue;
-        Object &object = objects[object_name];
+        Object& object = objects[object_name];
         simulation.objects[object_name] = &object;
-        for (const Json::Value &attribute_json : send_objects_json[object_name])
+        for (const Json::Value& attribute_json : send_objects_json[object_name])
         {
-            const std::string &attribute_name = attribute_json.asString();
-            Attribute &attribute = object.attributes[attribute_name];
+            const std::string& attribute_name = attribute_json.asString();
+            Attribute& attribute = object.attributes[attribute_name];
             if (cumulative_attribute_names.count(attribute_name) == 0)
             {
                 if (attribute.attribute_double.data.size() == 0)
@@ -1029,22 +1038,25 @@ void MultiverseServer::bind_send_objects()
                     attribute.attribute_double.data = attribute_map_double[attribute_name].second;
                     for (size_t i = 0; i < attribute.attribute_double.data.size(); i++)
                     {
-                        double *data = &attribute.attribute_double.data[i];
-                        const double conversion = conversion_map.conversion_map_double[attribute_map_double[attribute_name].first][i];
+                        double* data = &attribute.attribute_double.data[i];
+                        const double conversion =
+                            conversion_map.conversion_map_double[attribute_map_double[attribute_name].first][i];
                         send_buffer.buffer_double.data_vec.emplace_back(data, conversion);
                         response_meta_data_json["send"][object_name][attribute_name].append(*data * conversion);
                     }
                 }
                 else
                 {
-                    printf("[Server] Continue state [%s - %s] on socket %s\n", object_name.c_str(), attribute_name.c_str(), socket_addr.c_str());
+                    printf("[Server] Continue state [%s - %s] on socket %s\n", object_name.c_str(),
+                        attribute_name.c_str(), socket_addr.c_str());
                     continue_state = true;
                     attribute.attribute_double.is_sent = true;
 
                     for (size_t i = 0; i < attribute.attribute_double.data.size(); i++)
                     {
-                        double *data = &attribute.attribute_double.data[i];
-                        const double conversion = conversion_map.conversion_map_double[attribute_map_double[attribute_name].first][i];
+                        double* data = &attribute.attribute_double.data[i];
+                        const double conversion =
+                            conversion_map.conversion_map_double[attribute_map_double[attribute_name].first][i];
                         send_buffer.buffer_double.data_vec.emplace_back(data, conversion);
                         response_meta_data_json["send"][object_name][attribute_name].append(*data * conversion);
                     }
@@ -1054,22 +1066,25 @@ void MultiverseServer::bind_send_objects()
                     attribute.attribute_uint8_t.data = attribute_map_uint8_t[attribute_name].second;
                     for (size_t i = 0; i < attribute.attribute_uint8_t.data.size(); i++)
                     {
-                        uint8_t *data = &attribute.attribute_uint8_t.data[i];
-                        const uint8_t conversion = conversion_map.conversion_map_uint8_t[attribute_map_uint8_t[attribute_name].first][i];
+                        uint8_t* data = &attribute.attribute_uint8_t.data[i];
+                        const uint8_t conversion =
+                            conversion_map.conversion_map_uint8_t[attribute_map_uint8_t[attribute_name].first][i];
                         send_buffer.buffer_uint8_t.data_vec.emplace_back(data, conversion);
                         response_meta_data_json["send"][object_name][attribute_name].append(*data >> conversion);
                     }
                 }
                 else
                 {
-                    printf("[Server] Continue state [%s - %s] on socket %s\n", object_name.c_str(), attribute_name.c_str(), socket_addr.c_str());
+                    printf("[Server] Continue state [%s - %s] on socket %s\n", object_name.c_str(),
+                        attribute_name.c_str(), socket_addr.c_str());
                     continue_state = true;
                     attribute.attribute_uint8_t.is_sent = true;
 
                     for (size_t i = 0; i < attribute.attribute_uint8_t.data.size(); i++)
                     {
-                        uint8_t *data = &attribute.attribute_uint8_t.data[i];
-                        const uint8_t conversion = conversion_map.conversion_map_uint8_t[attribute_map_uint8_t[attribute_name].first][i];
+                        uint8_t* data = &attribute.attribute_uint8_t.data[i];
+                        const uint8_t conversion =
+                            conversion_map.conversion_map_uint8_t[attribute_map_uint8_t[attribute_name].first][i];
                         send_buffer.buffer_uint8_t.data_vec.emplace_back(data, conversion);
                         response_meta_data_json["send"][object_name][attribute_name].append(*data >> conversion);
                     }
@@ -1079,22 +1094,25 @@ void MultiverseServer::bind_send_objects()
                     attribute.attribute_uint16_t.data = attribute_map_uint16_t[attribute_name].second;
                     for (size_t i = 0; i < attribute.attribute_uint16_t.data.size(); i++)
                     {
-                        uint16_t *data = &attribute.attribute_uint16_t.data[i];
-                        const uint16_t conversion = conversion_map.conversion_map_uint16_t[attribute_map_uint16_t[attribute_name].first][i];
+                        uint16_t* data = &attribute.attribute_uint16_t.data[i];
+                        const uint16_t conversion =
+                            conversion_map.conversion_map_uint16_t[attribute_map_uint16_t[attribute_name].first][i];
                         send_buffer.buffer_uint16_t.data_vec.emplace_back(data, conversion);
                         response_meta_data_json["send"][object_name][attribute_name].append(*data >> conversion);
                     }
                 }
                 else
                 {
-                    printf("[Server] Continue state [%s - %s] on socket %s\n", object_name.c_str(), attribute_name.c_str(), socket_addr.c_str());
+                    printf("[Server] Continue state [%s - %s] on socket %s\n", object_name.c_str(),
+                        attribute_name.c_str(), socket_addr.c_str());
                     continue_state = true;
                     attribute.attribute_uint16_t.is_sent = true;
 
                     for (size_t i = 0; i < attribute.attribute_uint16_t.data.size(); i++)
                     {
-                        uint16_t *data = &attribute.attribute_uint16_t.data[i];
-                        const uint16_t conversion = conversion_map.conversion_map_uint16_t[attribute_map_uint16_t[attribute_name].first][i];
+                        uint16_t* data = &attribute.attribute_uint16_t.data[i];
+                        const uint16_t conversion =
+                            conversion_map.conversion_map_uint16_t[attribute_map_uint16_t[attribute_name].first][i];
                         send_buffer.buffer_uint16_t.data_vec.emplace_back(data, conversion);
                         response_meta_data_json["send"][object_name][attribute_name].append(*data >> conversion);
                     }
@@ -1102,41 +1120,47 @@ void MultiverseServer::bind_send_objects()
             }
             else
             {
-                std::vector<double> &simulation_data_double = attribute.attribute_double.simulation_data[simulation_name];
+                std::vector<double>& simulation_data_double =
+                    attribute.attribute_double.simulation_data[simulation_name];
                 if (simulation_data_double.size() == 0)
                 {
                     simulation_data_double = attribute_map_double[attribute_name].second;
                 }
                 for (size_t i = 0; i < simulation_data_double.size(); i++)
                 {
-                    double *data = &simulation_data_double[i];
-                    const double conversion = conversion_map.conversion_map_double[attribute_map_double[attribute_name].first][i];
+                    double* data = &simulation_data_double[i];
+                    const double conversion =
+                        conversion_map.conversion_map_double[attribute_map_double[attribute_name].first][i];
                     send_buffer.buffer_double.data_vec.emplace_back(data, conversion);
                     response_meta_data_json["send"][object_name][attribute_name].append(*data * conversion);
                 }
 
-                std::vector<uint8_t> &simulation_data_uint8_t = attribute.attribute_uint8_t.simulation_data[simulation_name];
+                std::vector<uint8_t>& simulation_data_uint8_t =
+                    attribute.attribute_uint8_t.simulation_data[simulation_name];
                 if (simulation_data_uint8_t.size() == 0)
                 {
                     simulation_data_uint8_t = attribute_map_uint8_t[attribute_name].second;
                 }
                 for (size_t i = 0; i < simulation_data_uint8_t.size(); i++)
                 {
-                    uint8_t *data = &simulation_data_uint8_t[i];
-                    const uint8_t conversion = conversion_map.conversion_map_uint8_t[attribute_map_uint8_t[attribute_name].first][i];
+                    uint8_t* data = &simulation_data_uint8_t[i];
+                    const uint8_t conversion =
+                        conversion_map.conversion_map_uint8_t[attribute_map_uint8_t[attribute_name].first][i];
                     send_buffer.buffer_uint8_t.data_vec.emplace_back(data, conversion);
                     response_meta_data_json["send"][object_name][attribute_name].append(*data >> conversion);
                 }
 
-                std::vector<uint16_t> &simulation_data_uint16_t = attribute.attribute_uint16_t.simulation_data[simulation_name];
+                std::vector<uint16_t>& simulation_data_uint16_t =
+                    attribute.attribute_uint16_t.simulation_data[simulation_name];
                 if (simulation_data_uint16_t.size() == 0)
                 {
                     simulation_data_uint16_t = attribute_map_uint16_t[attribute_name].second;
                 }
                 for (size_t i = 0; i < simulation_data_uint16_t.size(); i++)
                 {
-                    uint16_t *data = &simulation_data_uint16_t[i];
-                    const uint16_t conversion = conversion_map.conversion_map_uint16_t[attribute_map_uint16_t[attribute_name].first][i];
+                    uint16_t* data = &simulation_data_uint16_t[i];
+                    const uint16_t conversion =
+                        conversion_map.conversion_map_uint16_t[attribute_map_uint16_t[attribute_name].first][i];
                     send_buffer.buffer_uint16_t.data_vec.emplace_back(data, conversion);
                     response_meta_data_json["send"][object_name][attribute_name].append(*data >> conversion);
                 }
@@ -1149,13 +1173,13 @@ void MultiverseServer::validate_meta_data()
 {
     receive_objects_json = request_meta_data_json["receive"];
 
-    if (receive_objects_json.isMember("") &&
-        std::find(receive_objects_json[""].begin(), receive_objects_json[""].end(), "") != receive_objects_json[""].end())
+    if (receive_objects_json.isMember("") && std::find(receive_objects_json[""].begin(), receive_objects_json[""].end(),
+                                                 "") != receive_objects_json[""].end())
     {
         receive_objects_json = Json::objectValue;
-        for (const std::pair<const std::string, Object> &object : worlds[world_name].objects)
+        for (const std::pair<const std::string, Object>& object : worlds[world_name].objects)
         {
-            for (const std::pair<const std::string, Attribute> &attribute_pair : object.second.attributes)
+            for (const std::pair<const std::string, Attribute>& attribute_pair : object.second.attributes)
             {
                 receive_objects_json[object.first].append(attribute_pair.first);
             }
@@ -1163,20 +1187,21 @@ void MultiverseServer::validate_meta_data()
         return;
     }
 
-    for (const std::string &object_name : request_meta_data_json["receive"].getMemberNames())
+    for (const std::string& object_name : request_meta_data_json["receive"].getMemberNames())
     {
         if (!object_name.empty())
         {
-            for (const Json::Value &attribute_json : request_meta_data_json["receive"][object_name])
+            for (const Json::Value& attribute_json : request_meta_data_json["receive"][object_name])
             {
-                const std::string &attribute_name = attribute_json.asString();
+                const std::string& attribute_name = attribute_json.asString();
                 if (!attribute_name.empty())
                 {
                     continue;
                 }
 
                 receive_objects_json[object_name] = Json::arrayValue;
-                for (const std::pair<const std::string, Attribute> &attribute_pair : worlds[world_name].objects[object_name].attributes)
+                for (const std::pair<const std::string, Attribute>& attribute_pair :
+                    worlds[world_name].objects[object_name].attributes)
                 {
                     receive_objects_json[object_name].append(attribute_pair.first);
                 }
@@ -1185,10 +1210,10 @@ void MultiverseServer::validate_meta_data()
         }
         else
         {
-            for (const Json::Value &attribute_json : request_meta_data_json["receive"][object_name])
+            for (const Json::Value& attribute_json : request_meta_data_json["receive"][object_name])
             {
-                const std::string &attribute_name = attribute_json.asString();
-                for (const std::pair<const std::string, Object> &object_pair : worlds[world_name].objects)
+                const std::string& attribute_name = attribute_json.asString();
+                for (const std::pair<const std::string, Object>& object_pair : worlds[world_name].objects)
                 {
                     if (object_pair.second.attributes.count(attribute_name) > 0)
                     {
@@ -1211,17 +1236,19 @@ void MultiverseServer::wait_for_objects()
     {
         found_all_objects = true;
         now = get_time_now();
-        for (const std::string &object_name : receive_objects_json.getMemberNames())
+        for (const std::string& object_name : receive_objects_json.getMemberNames())
         {
-            for (const Json::Value &attribute_json : receive_objects_json[object_name])
+            for (const Json::Value& attribute_json : receive_objects_json[object_name])
             {
-                const std::string &attribute_name = attribute_json.asString();
-                if ((worlds[world_name].objects.count(object_name) == 0 || worlds[world_name].objects[object_name].attributes.count(attribute_name) == 0))
+                const std::string& attribute_name = attribute_json.asString();
+                if ((worlds[world_name].objects.count(object_name) == 0 ||
+                        worlds[world_name].objects[object_name].attributes.count(attribute_name) == 0))
                 {
                     found_all_objects = false;
                     if (now - start > 1)
                     {
-                        printf("[Server] Socket %s is waiting for [%s][%s][%s] to be declared.\n", socket_addr.c_str(), world_name.c_str(), object_name.c_str(), attribute_name.c_str());
+                        printf("[Server] Socket %s is waiting for [%s][%s][%s] to be declared.\n", socket_addr.c_str(),
+                            world_name.c_str(), object_name.c_str(), attribute_name.c_str());
                     }
                 }
             }
@@ -1235,18 +1262,18 @@ void MultiverseServer::wait_for_objects()
 
 void MultiverseServer::bind_receive_objects()
 {
-    std::map<std::string, Object> &objects = worlds[world_name].objects;
-    Simulation &simulation = worlds[world_name].simulations[simulation_name];
+    std::map<std::string, Object>& objects = worlds[world_name].objects;
+    Simulation& simulation = worlds[world_name].simulations[simulation_name];
 
-    for (const std::string &object_name : receive_objects_json.getMemberNames())
+    for (const std::string& object_name : receive_objects_json.getMemberNames())
     {
-        Object &object = objects[object_name];
+        Object& object = objects[object_name];
         simulation.objects[object_name] = &object;
         response_meta_data_json["receive"][object_name] = Json::objectValue;
-        for (const Json::Value &attribute_json : receive_objects_json[object_name])
+        for (const Json::Value& attribute_json : receive_objects_json[object_name])
         {
             const std::string attribute_name = attribute_json.asString();
-            Attribute &attribute = worlds[world_name].objects[object_name].attributes[attribute_name];
+            Attribute& attribute = worlds[world_name].objects[object_name].attributes[attribute_name];
             if (cumulative_attribute_names.count(attribute_name) > 0)
             {
                 if (attribute.attribute_double.data.size() == 0)
@@ -1268,22 +1295,25 @@ void MultiverseServer::bind_receive_objects()
 
             for (size_t i = 0; i < attribute.attribute_double.data.size(); i++)
             {
-                double *data = &attribute.attribute_double.data[i];
-                const double conversion = 1.0 / conversion_map.conversion_map_double[attribute_map_double[attribute_name].first][i];
+                double* data = &attribute.attribute_double.data[i];
+                const double conversion =
+                    1.0 / conversion_map.conversion_map_double[attribute_map_double[attribute_name].first][i];
                 receive_buffer.buffer_double.data_vec.emplace_back(data, conversion);
                 response_meta_data_json["receive"][object_name][attribute_name].append(*data * conversion);
             }
             for (size_t i = 0; i < attribute.attribute_uint8_t.data.size(); i++)
             {
-                uint8_t *data = &attribute.attribute_uint8_t.data[i];
-                const uint8_t conversion = conversion_map.conversion_map_uint8_t[attribute_map_uint8_t[attribute_name].first][i];
+                uint8_t* data = &attribute.attribute_uint8_t.data[i];
+                const uint8_t conversion =
+                    conversion_map.conversion_map_uint8_t[attribute_map_uint8_t[attribute_name].first][i];
                 receive_buffer.buffer_uint8_t.data_vec.emplace_back(data, conversion);
                 response_meta_data_json["receive"][object_name][attribute_name].append(*data >> conversion);
             }
             for (size_t i = 0; i < attribute.attribute_uint16_t.data.size(); i++)
             {
-                uint16_t *data = &attribute.attribute_uint16_t.data[i];
-                const uint16_t conversion = conversion_map.conversion_map_uint16_t[attribute_map_uint16_t[attribute_name].first][i];
+                uint16_t* data = &attribute.attribute_uint16_t.data[i];
+                const uint16_t conversion =
+                    conversion_map.conversion_map_uint16_t[attribute_map_uint16_t[attribute_name].first][i];
                 receive_buffer.buffer_uint16_t.data_vec.emplace_back(data, conversion);
                 response_meta_data_json["receive"][object_name][attribute_name].append(*data >> conversion);
             }
@@ -1295,17 +1325,17 @@ void MultiverseServer::wait_for_api_callbacks_response()
 {
     const Json::Value api_callbacks = request_meta_data_json["api_callbacks"];
 
-    for (const std::string &called_simulation_name : api_callbacks.getMemberNames())
+    for (const std::string& called_simulation_name : api_callbacks.getMemberNames())
     {
-        Simulation &simulation = worlds[world_name].simulations[called_simulation_name];
+        Simulation& simulation = worlds[world_name].simulations[called_simulation_name];
         simulation.request_meta_data_json["api_callbacks"] = api_callbacks[called_simulation_name];
-        for (const Json::Value &api_callback : api_callbacks[called_simulation_name])
+        for (const Json::Value& api_callback : api_callbacks[called_simulation_name])
         {
-            for (const std::string &callback_key : api_callback.getMemberNames())
+            for (const std::string& callback_key : api_callback.getMemberNames())
             {
                 std::map<std::string, std::vector<std::string>> api_callback_map;
                 api_callback_map[callback_key] = std::vector<std::string>{};
-                for (const Json::Value &param : api_callback[callback_key])
+                for (const Json::Value& param : api_callback[callback_key])
                 {
                     api_callback_map[callback_key].push_back(param.asString());
                 }
@@ -1322,9 +1352,9 @@ void MultiverseServer::wait_for_api_callbacks_response()
     {
         now = get_time_now();
         stop = true;
-        for (const std::string &called_simulation_name : api_callbacks.getMemberNames())
+        for (const std::string& called_simulation_name : api_callbacks.getMemberNames())
         {
-            Simulation &simulation = worlds[world_name].simulations[called_simulation_name];
+            Simulation& simulation = worlds[world_name].simulations[called_simulation_name];
             if (simulation.meta_data_state != EMetaDataState::Normal)
             {
                 stop = false;
@@ -1332,11 +1362,13 @@ void MultiverseServer::wait_for_api_callbacks_response()
                 {
                     if (simulation.api_callbacks.size() != 0)
                     {
-                        printf("[Server] Socket %s is waiting for %s to send API callbacks response data.\n", socket_addr.c_str(), called_simulation_name.c_str());
+                        printf("[Server] Socket %s is waiting for %s to send API callbacks response data.\n",
+                            socket_addr.c_str(), called_simulation_name.c_str());
                     }
                     else
                     {
-                        printf("[Server] Socket %s is waiting for %s to send data.\n", socket_addr.c_str(), called_simulation_name.c_str());
+                        printf("[Server] Socket %s is waiting for %s to send data.\n", socket_addr.c_str(),
+                            called_simulation_name.c_str());
                     }
                 }
             }
@@ -1351,21 +1383,24 @@ void MultiverseServer::wait_for_api_callbacks_response()
         }
     }
 
-    for (const std::string &called_simulation_name : api_callbacks.getMemberNames())
+    for (const std::string& called_simulation_name : api_callbacks.getMemberNames())
     {
-        Simulation &simulation = worlds[world_name].simulations[called_simulation_name];
+        Simulation& simulation = worlds[world_name].simulations[called_simulation_name];
         response_meta_data_json["api_callbacks_response"][called_simulation_name] = Json::arrayValue;
-        for (const std::map<std::string, std::vector<std::string>> &api_callbacks_response : simulation.api_callbacks_response)
+        for (const std::map<std::string, std::vector<std::string>>& api_callbacks_response :
+            simulation.api_callbacks_response)
         {
-            for (const std::pair<const std::string, std::vector<std::string>> &api_callback_response : api_callbacks_response)
+            for (const std::pair<const std::string, std::vector<std::string>>& api_callback_response :
+                api_callbacks_response)
             {
                 Json::Value api_callback_response_json;
                 api_callback_response_json[api_callback_response.first] = Json::arrayValue;
-                for (const std::string &param : api_callback_response.second)
+                for (const std::string& param : api_callback_response.second)
                 {
                     api_callback_response_json[api_callback_response.first].append(param);
                 }
-                response_meta_data_json["api_callbacks_response"][called_simulation_name].append(api_callback_response_json);
+                response_meta_data_json["api_callbacks_response"][called_simulation_name].append(
+                    api_callback_response_json);
             }
         }
     }
@@ -1396,34 +1431,37 @@ void MultiverseServer::send_response_meta_data()
 void MultiverseServer::init_send_and_receive_data()
 {
     send_buffer.buffer_double.size = send_buffer.buffer_double.data_vec.size();
-    send_buffer.buffer_double.data = (double *)calloc(send_buffer.buffer_double.size, sizeof(double));
+    send_buffer.buffer_double.data = (double*)calloc(send_buffer.buffer_double.size, sizeof(double));
     send_buffer.buffer_uint8_t.size = send_buffer.buffer_uint8_t.data_vec.size();
-    send_buffer.buffer_uint8_t.data = (uint8_t *)calloc(send_buffer.buffer_uint8_t.size, sizeof(uint8_t));
+    send_buffer.buffer_uint8_t.data = (uint8_t*)calloc(send_buffer.buffer_uint8_t.size, sizeof(uint8_t));
     send_buffer.buffer_uint16_t.size = send_buffer.buffer_uint16_t.data_vec.size();
-    send_buffer.buffer_uint16_t.data = (uint16_t *)calloc(send_buffer.buffer_uint16_t.size, sizeof(uint16_t));
+    send_buffer.buffer_uint16_t.data = (uint16_t*)calloc(send_buffer.buffer_uint16_t.size, sizeof(uint16_t));
     receive_buffer.buffer_double.size = receive_buffer.buffer_double.data_vec.size();
-    receive_buffer.buffer_double.data = (double *)calloc(receive_buffer.buffer_double.size, sizeof(double));
+    receive_buffer.buffer_double.data = (double*)calloc(receive_buffer.buffer_double.size, sizeof(double));
     receive_buffer.buffer_uint8_t.size = receive_buffer.buffer_uint8_t.data_vec.size();
-    receive_buffer.buffer_uint8_t.data = (uint8_t *)calloc(receive_buffer.buffer_uint8_t.size, sizeof(uint8_t));
+    receive_buffer.buffer_uint8_t.data = (uint8_t*)calloc(receive_buffer.buffer_uint8_t.size, sizeof(uint8_t));
     receive_buffer.buffer_uint16_t.size = receive_buffer.buffer_uint16_t.data_vec.size();
-    receive_buffer.buffer_uint16_t.data = (uint16_t *)calloc(receive_buffer.buffer_uint16_t.size, sizeof(uint16_t));
+    receive_buffer.buffer_uint16_t.data = (uint16_t*)calloc(receive_buffer.buffer_uint16_t.size, sizeof(uint16_t));
 }
 
 void MultiverseServer::wait_for_other_send_data()
 {
     double start = get_time_now();
     double now = get_time_now();
-    EMetaDataState &request_meta_data_state = worlds[request_world_name].simulations[request_simulation_name].meta_data_state;
+    EMetaDataState& request_meta_data_state =
+        worlds[request_world_name].simulations[request_simulation_name].meta_data_state;
     while (!ShutdownManager::is_shutdown())
     {
-        if (request_meta_data_state == EMetaDataState::WaitAfterOtherBindSendData || request_meta_data_state == EMetaDataState::Normal)
+        if (request_meta_data_state == EMetaDataState::WaitAfterOtherBindSendData ||
+            request_meta_data_state == EMetaDataState::Normal)
         {
             break;
         }
         now = get_time_now();
         if (now - start > 1)
         {
-            printf("[Server] Socket %s is waiting for %s to send data.\n", socket_addr.c_str(), request_simulation_name.c_str());
+            printf("[Server] Socket %s is waiting for %s to send data.\n", socket_addr.c_str(),
+                request_simulation_name.c_str());
             start = now;
         }
     }
@@ -1435,23 +1473,26 @@ void MultiverseServer::bind_send_data()
 {
     for (size_t i = 0; i < send_buffer.buffer_double.size; i++)
     {
-        *send_buffer.buffer_double.data_vec[i].first = send_buffer.buffer_double.data[i] * send_buffer.buffer_double.data_vec[i].second;
+        *send_buffer.buffer_double.data_vec[i].first =
+            send_buffer.buffer_double.data[i] * send_buffer.buffer_double.data_vec[i].second;
     }
     for (size_t i = 0; i < send_buffer.buffer_uint8_t.size; i++)
     {
-        *send_buffer.buffer_uint8_t.data_vec[i].first = send_buffer.buffer_uint8_t.data[i] >> send_buffer.buffer_uint8_t.data_vec[i].second;
+        *send_buffer.buffer_uint8_t.data_vec[i].first =
+            send_buffer.buffer_uint8_t.data[i] >> send_buffer.buffer_uint8_t.data_vec[i].second;
     }
     for (size_t i = 0; i < send_buffer.buffer_uint16_t.size; i++)
     {
-        *send_buffer.buffer_uint16_t.data_vec[i].first = send_buffer.buffer_uint16_t.data[i] >> send_buffer.buffer_uint16_t.data_vec[i].second;
+        *send_buffer.buffer_uint16_t.data_vec[i].first =
+            send_buffer.buffer_uint16_t.data[i] >> send_buffer.buffer_uint16_t.data_vec[i].second;
     }
 }
 
 void MultiverseServer::wait_for_receive_data()
 {
-    for (const std::string &object_name : send_objects_json.getMemberNames())
+    for (const std::string& object_name : send_objects_json.getMemberNames())
     {
-        for (const Json::Value &attribute_json : send_objects_json[object_name])
+        for (const Json::Value& attribute_json : send_objects_json[object_name])
         {
             const std::string attribute_name = attribute_json.asString();
             worlds[world_name].objects[object_name].attributes[attribute_name].attribute_double.is_sent = true;
@@ -1462,23 +1503,28 @@ void MultiverseServer::wait_for_receive_data()
 
     if (!is_receive_data_sent)
     {
-        for (const std::string &object_name : receive_objects_json.getMemberNames())
+        for (const std::string& object_name : receive_objects_json.getMemberNames())
         {
-            for (const Json::Value &attribute_json : receive_objects_json[object_name])
+            for (const Json::Value& attribute_json : receive_objects_json[object_name])
             {
                 const std::string attribute_name = attribute_json.asString();
                 double start = get_time_now();
-                while ((worlds[world_name].objects.count(object_name) == 0 ||
+                while (
+                    (worlds[world_name].objects.count(object_name) == 0 ||
                         worlds[world_name].objects[object_name].attributes.count(attribute_name) == 0 ||
                         !worlds[world_name].objects[object_name].attributes[attribute_name].attribute_double.is_sent ||
                         !worlds[world_name].objects[object_name].attributes[attribute_name].attribute_uint8_t.is_sent ||
-                        !worlds[world_name].objects[object_name].attributes[attribute_name].attribute_uint16_t.is_sent) &&
-                       !ShutdownManager::is_shutdown())
+                        !worlds[world_name]
+                            .objects[object_name]
+                            .attributes[attribute_name]
+                            .attribute_uint16_t.is_sent) &&
+                    !ShutdownManager::is_shutdown())
                 {
                     const double now = get_time_now();
                     if (now - start > 1)
                     {
-                        printf("[Server] Socket %s is waiting for data of [%s][%s][%s] to be sent.\n", socket_addr.c_str(), world_name.c_str(), object_name.c_str(), attribute_name.c_str());
+                        printf("[Server] Socket %s is waiting for data of [%s][%s][%s] to be sent.\n",
+                            socket_addr.c_str(), world_name.c_str(), object_name.c_str(), attribute_name.c_str());
                         start = now;
                     }
                 }
@@ -1491,28 +1537,32 @@ void MultiverseServer::wait_for_receive_data()
 
 void MultiverseServer::compute_cumulative_data()
 {
-    for (const std::string &object_name : receive_objects_json.getMemberNames())
+    for (const std::string& object_name : receive_objects_json.getMemberNames())
     {
-        for (const std::string &attribute_name : cumulative_attribute_names)
+        for (const std::string& attribute_name : cumulative_attribute_names)
         {
-            if (std::find(receive_objects_json[object_name].begin(), receive_objects_json[object_name].end(), attribute_name) == receive_objects_json[object_name].end())
+            if (std::find(receive_objects_json[object_name].begin(), receive_objects_json[object_name].end(),
+                    attribute_name) == receive_objects_json[object_name].end())
             {
                 continue;
             }
 
-            std::vector<double> &double_data = worlds[world_name].objects[object_name].attributes[attribute_name].attribute_double.data;
+            std::vector<double>& double_data =
+                worlds[world_name].objects[object_name].attributes[attribute_name].attribute_double.data;
             double_data = attribute_map_double[attribute_name].second;
             for (size_t i = 0; i < double_data.size(); i++)
             {
-                for (std::pair<const std::string, Simulation> &simulation_pair : worlds[world_name].simulations)
+                for (std::pair<const std::string, Simulation>& simulation_pair : worlds[world_name].simulations)
                 {
                     if (simulation_pair.second.objects.count(object_name) == 0)
                     {
                         continue;
                     }
 
-                    const std::string &simulation_name = simulation_pair.first;
-                    const std::vector<double> &simulation_data = (*simulation_pair.second.objects[object_name]).attributes[attribute_name].attribute_double.simulation_data[simulation_name];
+                    const std::string& simulation_name = simulation_pair.first;
+                    const std::vector<double>& simulation_data = (*simulation_pair.second.objects[object_name])
+                                                                     .attributes[attribute_name]
+                                                                     .attribute_double.simulation_data[simulation_name];
                     if (simulation_data.size() != double_data.size())
                     {
                         continue;
@@ -1522,19 +1572,23 @@ void MultiverseServer::compute_cumulative_data()
                 }
             }
 
-            std::vector<uint8_t> &uint8_t_data = worlds[world_name].objects[object_name].attributes[attribute_name].attribute_uint8_t.data;
+            std::vector<uint8_t>& uint8_t_data =
+                worlds[world_name].objects[object_name].attributes[attribute_name].attribute_uint8_t.data;
             uint8_t_data = attribute_map_uint8_t[attribute_name].second;
             for (size_t i = 0; i < uint8_t_data.size(); i++)
             {
-                for (std::pair<const std::string, Simulation> &simulation_pair : worlds[world_name].simulations)
+                for (std::pair<const std::string, Simulation>& simulation_pair : worlds[world_name].simulations)
                 {
                     if (simulation_pair.second.objects.count(object_name) == 0)
                     {
                         continue;
                     }
 
-                    const std::string &simulation_name = simulation_pair.first;
-                    const std::vector<uint8_t> &simulation_data = (*simulation_pair.second.objects[object_name]).attributes[attribute_name].attribute_uint8_t.simulation_data[simulation_name];
+                    const std::string& simulation_name = simulation_pair.first;
+                    const std::vector<uint8_t>& simulation_data =
+                        (*simulation_pair.second.objects[object_name])
+                            .attributes[attribute_name]
+                            .attribute_uint8_t.simulation_data[simulation_name];
                     if (simulation_data.size() != uint8_t_data.size())
                     {
                         continue;
@@ -1544,19 +1598,23 @@ void MultiverseServer::compute_cumulative_data()
                 }
             }
 
-            std::vector<uint16_t> &uint16_t_data = worlds[world_name].objects[object_name].attributes[attribute_name].attribute_uint16_t.data;
+            std::vector<uint16_t>& uint16_t_data =
+                worlds[world_name].objects[object_name].attributes[attribute_name].attribute_uint16_t.data;
             uint16_t_data = attribute_map_uint16_t[attribute_name].second;
             for (size_t i = 0; i < uint16_t_data.size(); i++)
             {
-                for (std::pair<const std::string, Simulation> &simulation_pair : worlds[world_name].simulations)
+                for (std::pair<const std::string, Simulation>& simulation_pair : worlds[world_name].simulations)
                 {
                     if (simulation_pair.second.objects.count(object_name) == 0)
                     {
                         continue;
                     }
 
-                    const std::string &simulation_name = simulation_pair.first;
-                    const std::vector<uint16_t> &simulation_data = (*simulation_pair.second.objects[object_name]).attributes[attribute_name].attribute_uint16_t.simulation_data[simulation_name];
+                    const std::string& simulation_name = simulation_pair.first;
+                    const std::vector<uint16_t>& simulation_data =
+                        (*simulation_pair.second.objects[object_name])
+                            .attributes[attribute_name]
+                            .attribute_uint16_t.simulation_data[simulation_name];
                     if (simulation_data.size() != uint16_t_data.size())
                     {
                         continue;
@@ -1573,15 +1631,18 @@ void MultiverseServer::bind_receive_data()
 {
     for (size_t i = 0; i < receive_buffer.buffer_double.size; i++)
     {
-        receive_buffer.buffer_double.data[i] = *receive_buffer.buffer_double.data_vec[i].first * receive_buffer.buffer_double.data_vec[i].second;
+        receive_buffer.buffer_double.data[i] =
+            *receive_buffer.buffer_double.data_vec[i].first * receive_buffer.buffer_double.data_vec[i].second;
     }
     for (size_t i = 0; i < receive_buffer.buffer_uint8_t.size; i++)
     {
-        receive_buffer.buffer_uint8_t.data[i] = *receive_buffer.buffer_uint8_t.data_vec[i].first >> receive_buffer.buffer_uint8_t.data_vec[i].second;
+        receive_buffer.buffer_uint8_t.data[i] =
+            *receive_buffer.buffer_uint8_t.data_vec[i].first >> receive_buffer.buffer_uint8_t.data_vec[i].second;
     }
     for (size_t i = 0; i < receive_buffer.buffer_uint16_t.size; i++)
     {
-        receive_buffer.buffer_uint16_t.data[i] = *receive_buffer.buffer_uint16_t.data_vec[i].first >> receive_buffer.buffer_uint16_t.data_vec[i].second;
+        receive_buffer.buffer_uint16_t.data[i] =
+            *receive_buffer.buffer_uint16_t.data_vec[i].first >> receive_buffer.buffer_uint16_t.data_vec[i].second;
     }
 }
 
@@ -1589,7 +1650,7 @@ void MultiverseServer::receive_new_request_meta_data()
 {
     printf("[Server] Socket %s has received new request meta data.\n", socket_addr.c_str());
 
-    Simulation &simulation = worlds[world_name].simulations[simulation_name];
+    Simulation& simulation = worlds[world_name].simulations[simulation_name];
     simulation.meta_data_state = EMetaDataState::WaitAfterOtherBindSendData;
     double start = get_time_now();
     double now = get_time_now();
@@ -1616,13 +1677,13 @@ void MultiverseServer::receive_new_request_meta_data()
             simulation.request_meta_data_json["receive"] = request_meta_data_json["receive"];
 
             const Json::Value api_callbacks_response = request_meta_data_json["api_callbacks_response"];
-            for (const Json::Value &api_callback_response : api_callbacks_response)
+            for (const Json::Value& api_callback_response : api_callbacks_response)
             {
-                for (const std::string &callback_key : api_callback_response.getMemberNames())
+                for (const std::string& callback_key : api_callback_response.getMemberNames())
                 {
                     std::map<std::string, std::vector<std::string>> api_callback_map;
                     api_callback_map[callback_key] = std::vector<std::string>{};
-                    for (const Json::Value &param : api_callback_response[callback_key])
+                    for (const Json::Value& param : api_callback_response[callback_key])
                     {
                         api_callback_map[callback_key].push_back(param.asString());
                     }
@@ -1660,7 +1721,9 @@ void MultiverseServer::send_receive_data()
     }
     else
     {
-        const int message_spec_int = 2 + (receive_buffer.buffer_double.size > 0) + (receive_buffer.buffer_uint8_t.size > 0) + (receive_buffer.buffer_uint16_t.size > 0);
+        const int message_spec_int = 2 + (receive_buffer.buffer_double.size > 0) +
+                                     (receive_buffer.buffer_uint8_t.size > 0) +
+                                     (receive_buffer.buffer_uint16_t.size > 0);
         send_message(&message_spec_int, sizeof(message_spec_int), /*more*/ true);
     }
 
@@ -1676,18 +1739,21 @@ void MultiverseServer::send_receive_data()
         memcpy(&message_time, &worlds[world_name].time, sizeof(double));
     }
 
-    if (receive_buffer.buffer_double.size > 0 || receive_buffer.buffer_uint8_t.size > 0 || receive_buffer.buffer_uint16_t.size > 0)
+    if (receive_buffer.buffer_double.size > 0 || receive_buffer.buffer_uint8_t.size > 0 ||
+        receive_buffer.buffer_uint16_t.size > 0)
     {
         send_message(&message_time, sizeof(message_time), /*more*/ true);
         if (receive_buffer.buffer_double.size > 0)
         {
             if (receive_buffer.buffer_uint8_t.size > 0 || receive_buffer.buffer_uint16_t.size > 0)
             {
-                send_message(receive_buffer.buffer_double.data, receive_buffer.buffer_double.size * sizeof(double), /*more*/ true);
+                send_message(receive_buffer.buffer_double.data, receive_buffer.buffer_double.size * sizeof(double),
+                    /*more*/ true);
             }
             else
             {
-                send_message(receive_buffer.buffer_double.data, receive_buffer.buffer_double.size * sizeof(double), /*more*/ false);
+                send_message(receive_buffer.buffer_double.data, receive_buffer.buffer_double.size * sizeof(double),
+                    /*more*/ false);
             }
         }
 
@@ -1695,17 +1761,20 @@ void MultiverseServer::send_receive_data()
         {
             if (receive_buffer.buffer_uint16_t.size > 0)
             {
-                send_message(receive_buffer.buffer_uint8_t.data, receive_buffer.buffer_uint8_t.size * sizeof(double), /*more*/ true);
+                send_message(receive_buffer.buffer_uint8_t.data, receive_buffer.buffer_uint8_t.size * sizeof(double),
+                    /*more*/ true);
             }
             else
             {
-                send_message(receive_buffer.buffer_uint8_t.data, receive_buffer.buffer_uint8_t.size * sizeof(double), /*more*/ false);
+                send_message(receive_buffer.buffer_uint8_t.data, receive_buffer.buffer_uint8_t.size * sizeof(double),
+                    /*more*/ false);
             }
         }
 
         if (receive_buffer.buffer_uint16_t.size > 0)
         {
-            send_message(receive_buffer.buffer_uint16_t.data, receive_buffer.buffer_uint16_t.size * sizeof(double), /*more*/ false);
+            send_message(receive_buffer.buffer_uint16_t.data, receive_buffer.buffer_uint16_t.size * sizeof(double),
+                /*more*/ false);
         }
     }
     else
@@ -1715,11 +1784,11 @@ void MultiverseServer::send_receive_data()
 }
 
 #if USE_ZMQ
-void start_multiverse_server(const std::string &server_socket_addr)
+void start_multiverse_server(const std::string& server_socket_addr)
 {
     std::map<std::string, std::thread> workers;
     zmq::socket_t server_socket(server_context, zmq::socket_type::rep);
-    server_socket.set(zmq::sockopt::rcvtimeo, 100); 
+    server_socket.set(zmq::sockopt::rcvtimeo, 100);
 
     server_socket.bind(server_socket_addr);
     mv_log("[Server] Create server socket %s\n", server_socket_addr.c_str());
@@ -1731,8 +1800,10 @@ void start_multiverse_server(const std::string &server_socket_addr)
         zmq::message_t request;
         zmq::recv_result_t res = server_socket.recv(request, zmq::recv_flags::none);
 
-        if (!res) {
-            if (ShutdownManager::is_shutdown()) {
+        if (!res)
+        {
+            if (ShutdownManager::is_shutdown())
+            {
                 break;
             }
             continue;
@@ -1760,7 +1831,8 @@ void start_multiverse_server(const std::string &server_socket_addr)
     server_socket.close();
 
     mv_log("[Server] Stopping workers...\n");
-    for (auto &[addr, t] : workers) {
+    for (auto& [addr, t] : workers)
+    {
         if (t.joinable())
             t.join();
     }
@@ -1771,7 +1843,7 @@ void start_multiverse_server(const std::string &server_socket_addr)
 #endif
 
 #if USE_TCP
-void start_multiverse_server_tcp(const std::string &host, const std::string &port)
+void start_multiverse_server_tcp(const std::string& host, const std::string& port)
 {
 #ifdef _WIN32
     WSADATA wsa;
@@ -1793,7 +1865,7 @@ void start_multiverse_server_tcp(const std::string &host, const std::string &por
 
     int opt = 1;
 #ifdef _WIN32
-    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&opt, sizeof(opt));
+    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
 #else
     setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 #endif
@@ -1802,7 +1874,7 @@ void start_multiverse_server_tcp(const std::string &host, const std::string &por
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(static_cast<uint16_t>(std::stoi(port)));
     server_addr.sin_addr.s_addr = inet_addr(host.c_str());
-    if (::bind(listen_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+    if (::bind(listen_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0)
     {
         perror("bind");
         CLOSESOCK(listen_fd);
@@ -1863,7 +1935,7 @@ void start_multiverse_server_tcp(const std::string &host, const std::string &por
         // If we’re here, a client is ready to connect
         sockaddr_in client_addr{};
         socklen_t client_len = sizeof(client_addr);
-        SOCKET client_fd = ::accept(listen_fd, (struct sockaddr *)&client_addr, &client_len);
+        SOCKET client_fd = ::accept(listen_fd, (struct sockaddr*)&client_addr, &client_len);
         if (client_fd == INVALID_SOCKET)
         {
             if (ShutdownManager::is_shutdown())
@@ -1919,21 +1991,25 @@ void start_multiverse_server_tcp(const std::string &host, const std::string &por
         if (workers.count(worker_addr))
         {
             mv_log("[Server-TCP] Cleaning up old worker on %s", worker_addr.c_str());
-            if (workers[worker_addr].joinable()) {
+            if (workers[worker_addr].joinable())
+            {
                 workers[worker_addr].join();
             }
             workers.erase(worker_addr);
         }
 
-        workers[worker_addr] = std::thread([worker_addr, host]()
-                                           {
-        try {
-            mv_log("[Server-TCP-Worker] Starting at thread %s", worker_addr.c_str());
-            MultiverseServer server(host, worker_addr.substr(worker_addr.find(':') + 1), ServerTransportType::Tcp);
-            server.start();
-        } catch (const std::exception& e) {
-            mv_log("[Server-TCP-Worker] Exception on %s: %s", worker_addr.c_str(), e.what());
-        } });
+        workers[worker_addr] = std::thread([worker_addr, host]() {
+            try
+            {
+                mv_log("[Server-TCP-Worker] Starting at thread %s", worker_addr.c_str());
+                MultiverseServer server(host, worker_addr.substr(worker_addr.find(':') + 1), ServerTransportType::Tcp);
+                server.start();
+            }
+            catch (const std::exception& e)
+            {
+                mv_log("[Server-TCP-Worker] Exception on %s: %s", worker_addr.c_str(), e.what());
+            }
+        });
 
         std::vector<std::string> resp = {worker_addr};
         if (!rawtcp::send_parts(client_fd, resp))
@@ -1942,14 +2018,13 @@ void start_multiverse_server_tcp(const std::string &host, const std::string &por
         }
 
         CLOSESOCK(client_fd);
-        mv_log("[Server-TCP] Connection closed. %s:%d",
-               inet_ntoa(client_addr.sin_addr),
-               ntohs(client_addr.sin_port));
+        mv_log("[Server-TCP] Connection closed. %s:%d", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
     }
 
     mv_log("[Server-TCP] Dispatcher shutting down, waiting for workers...");
-    for (auto &[addr, t] : workers)
-        if (t.joinable()) t.join();
+    for (auto& [addr, t] : workers)
+        if (t.joinable())
+            t.join();
 
     CLOSESOCK(listen_fd);
 #ifdef _WIN32
@@ -1963,7 +2038,7 @@ void start_multiverse_server_tcp(const std::string &host, const std::string &por
 // UDP SERVER
 // ===========================================================================
 #if USE_UDP
-void start_multiverse_server_udp(const std::string &host, const std::string &port)
+void start_multiverse_server_udp(const std::string& host, const std::string& port)
 {
 #ifdef _WIN32
     WSADATA wsa;
@@ -1985,7 +2060,7 @@ void start_multiverse_server_udp(const std::string &host, const std::string &por
 
     int opt = 1;
 #ifdef _WIN32
-    ::setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char *)&opt, sizeof(opt));
+    ::setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
 #else
     ::setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 #endif
@@ -1994,7 +2069,7 @@ void start_multiverse_server_udp(const std::string &host, const std::string &por
     srv.sin_family = AF_INET;
     srv.sin_port = htons(static_cast<uint16_t>(std::stoi(port)));
     srv.sin_addr.s_addr = inet_addr(host.c_str());
-    if (::bind(sock, reinterpret_cast<sockaddr *>(&srv), sizeof(srv)) < 0)
+    if (::bind(sock, reinterpret_cast<sockaddr*>(&srv), sizeof(srv)) < 0)
     {
         perror("bind");
         CLOSESOCK(sock);
@@ -2016,9 +2091,10 @@ void start_multiverse_server_udp(const std::string &host, const std::string &por
         sockaddr_storage from{};
         socklen_t fromlen = sizeof(from);
 
-        if (!rawudp::recv_parts_from(sock, parts, (sockaddr *)&from, &fromlen, 1000))
+        if (!rawudp::recv_parts_from(sock, parts, (sockaddr*)&from, &fromlen, 1000))
         {
-            if (ShutdownManager::is_shutdown()) break;
+            if (ShutdownManager::is_shutdown())
+                break;
             continue;
         }
 
@@ -2088,7 +2164,7 @@ void start_multiverse_server_udp(const std::string &host, const std::string &por
                     server->start();
                     mv_log("[Server-UDP-Worker] Worker %s exited cleanly.", worker_addr.c_str());
                 }
-                catch (const std::exception &e)
+                catch (const std::exception& e)
                 {
                     mv_log("[Server-UDP-Worker] Exception on %s: %s", worker_addr.c_str(), e.what());
                 }
@@ -2097,7 +2173,7 @@ void start_multiverse_server_udp(const std::string &host, const std::string &por
 
         // ✅ Respond to client
         std::vector<std::string> resp = {worker_addr};
-        if (!rawudp::send_parts_to(sock, resp, (sockaddr *)&from, fromlen))
+        if (!rawudp::send_parts_to(sock, resp, (sockaddr*)&from, fromlen))
             mv_log("[Server-UDP] Failed to send handshake response to client.");
     }
 
@@ -2106,7 +2182,7 @@ void start_multiverse_server_udp(const std::string &host, const std::string &por
 
     {
         std::unique_lock<std::mutex> lock(workers_mutex);
-        for (auto &[addr, srv] : servers)
+        for (auto& [addr, srv] : servers)
         {
             if (srv)
             {
@@ -2117,7 +2193,7 @@ void start_multiverse_server_udp(const std::string &host, const std::string &por
         lock.unlock();
 
         // ✅ Join threads outside of lock to prevent deadlock
-        for (auto &[addr, t] : workers)
+        for (auto& [addr, t] : workers)
         {
             if (t.joinable())
             {
