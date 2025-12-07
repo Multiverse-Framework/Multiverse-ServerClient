@@ -2,12 +2,16 @@
 #include "server_transport.hpp"
 #include "utils/raw_tcp.hpp"
 
-class TcpServerTransport : public IServerTransport {
+class TcpServerTransport : public IServerTransport
+{
 public:
     TcpServerTransport();
     ~TcpServerTransport() override;
 
-    ServerTransportType type() const override { return ServerTransportType::Tcp; }
+    ServerTransportType type() const override
+    {
+        return ServerTransportType::Tcp;
+    }
 
     void listen(const std::string& ep) override;
     bool accept() override;

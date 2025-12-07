@@ -1,8 +1,9 @@
 #pragma once
 #include <string>
 #include <vector>
-#include "utils/raw_udp.hpp"
+
 #include "server_transport.hpp"
+#include "utils/raw_udp.hpp"
 
 class UdpServerTransport : public IServerTransport
 {
@@ -10,7 +11,10 @@ public:
     UdpServerTransport();
     ~UdpServerTransport();
 
-    ServerTransportType type() const override { return ServerTransportType::Udp; }
+    ServerTransportType type() const override
+    {
+        return ServerTransportType::Udp;
+    }
 
     void listen(const std::string& endpoint) override;
     bool accept() override;
@@ -20,6 +24,7 @@ public:
     void recv(void* data, size_t len) override;
     std::string recv_text() override;
     bool recv_multipart(std::vector<std::string>& parts) override;
+
 private:
     socket_t sock_;
     bool peer_known_;

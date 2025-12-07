@@ -2,9 +2,15 @@
 #include <string>
 #include <vector>
 
-enum class ServerTransportType : unsigned char { Tcp, Udp, Zmq };
+enum class ServerTransportType : unsigned char
+{
+    Tcp,
+    Udp,
+    Zmq
+};
 
-class IServerTransport {
+class IServerTransport
+{
 public:
     virtual ~IServerTransport() = default;
 

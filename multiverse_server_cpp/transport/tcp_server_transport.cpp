@@ -1,12 +1,13 @@
 #include "tcp_server_transport.hpp"
-#include "utils/socket_utils.hpp"
 
-#include <stdexcept>
 #include <cstring>
+#include <stdexcept>
+
+#include "utils/socket_utils.hpp"
 
 namespace {
 
-std::pair<std::string, std::string> split_host_port(const std::string &endpoint)
+std::pair<std::string, std::string> split_host_port(const std::string& endpoint)
 {
     if (endpoint.empty())
         return {"", ""};
@@ -30,14 +31,11 @@ std::pair<std::string, std::string> split_host_port(const std::string &endpoint)
 void set_common_sockopts(socket_t s)
 {
     int yes = 1;
-    ::setsockopt(s, SOL_SOCKET, SO_REUSEADDR,
-                 reinterpret_cast<const char *>(&yes), sizeof(yes));
+    ::setsockopt(s, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&yes), sizeof(yes));
 #ifndef _WIN32
-    ::setsockopt(s, SOL_SOCKET, SO_REUSEPORT,
-                 reinterpret_cast<const char *>(&yes), sizeof(yes));
+    ::setsockopt(s, SOL_SOCKET, SO_REUSEPORT, reinterpret_cast<const char*>(&yes), sizeof(yes));
 #endif
-    ::setsockopt(s, IPPROTO_TCP, TCP_NODELAY,
-                 reinterpret_cast<const char *>(&yes), sizeof(yes));
+    ::setsockopt(s, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&yes), sizeof(yes));
 }
 
 int sock_errno_local()
@@ -52,9 +50,9 @@ int sock_errno_local()
 } // namespace
 
 TcpServerTransport::TcpServerTransport()
-    : listen_fd_(invalid_socket()),
-      client_fd_(invalid_socket()),
-      in_next_(0)
+    : listen_fd_(invalid_socket())
+    , client_fd_(invalid_socket())
+    , in_next_(0)
 {
 }
 
@@ -63,7 +61,7 @@ TcpServerTransport::~TcpServerTransport()
     disconnect();
 }
 
-void TcpServerTransport::listen(const std::string &endpoint)
+void TcpServerTransport::listen(const std::string& endpoint)
 {
     if (is_valid_socket(listen_fd_))
     {
@@ -72,8 +70,8 @@ void TcpServerTransport::listen(const std::string &endpoint)
     }
 
     auto hp = split_host_port(endpoint);
-    const std::string &host   = hp.first;
-    const std::string &port_s = hp.second;
+    const std::string& host = hp.first;
+    const std::string& port_s = hp.second;
 
     if (port_s.empty())
         throw std::runtime_error("TcpServerTransport: missing port in endpoint \"" + endpoint + "\"");
@@ -82,23 +80,27 @@ void TcpServerTransport::listen(const std::string &endpoint)
 
     addrinfo hints{};
     hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags    = AI_PASSIVE;
-    hints.ai_family   = AF_UNSPEC;
+    hints.ai_flags = AI_PASSIVE;
+    hints.ai_family = AF_UNSPEC;
 
-    addrinfo *res = nullptr;
+    addrinfo* res = nullptr;
     int gai_rc = ::getaddrinfo(is_any_host ? nullptr : host.c_str(), port_s.c_str(), &hints, &res);
     if (gai_rc != 0 || !res)
     {
-        throw std::runtime_error(
-            make_socket_error_str("TcpServerTransport: getaddrinfo(bind) failed for " + endpoint));
+        throw std::runtime_error(make_socket_error_str("TcpServerTransport: getaddrinfo(bind) failed for " + endpoint));
     }
 
-    struct AddrInfoGuard {
-        addrinfo *p;
-        ~AddrInfoGuard() { if (p) ::freeaddrinfo(p); }
+    struct AddrInfoGuard
+    {
+        addrinfo* p;
+        ~AddrInfoGuard()
+        {
+            if (p)
+                ::freeaddrinfo(p);
+        }
     } guard{res};
 
-    for (auto *p = res; p; p = p->ai_next)
+    for (auto* p = res; p; p = p->ai_next)
     {
         socket_t cand = ::socket(p->ai_family, p->ai_socktype, p->ai_protocol);
         if (!is_valid_socket(cand))
@@ -122,8 +124,7 @@ void TcpServerTransport::listen(const std::string &endpoint)
         return;
     }
 
-    throw std::runtime_error(
-        make_socket_error_str("TcpServerTransport: bind/listen failed on " + endpoint));
+    throw std::runtime_error(make_socket_error_str("TcpServerTransport: bind/listen failed on " + endpoint));
 }
 
 bool TcpServerTransport::accept()
@@ -141,9 +142,7 @@ bool TcpServerTransport::accept()
 
     sockaddr_storage cliaddr{};
     socklen_t len = sizeof(cliaddr);
-    socket_t cfd = ::accept(listen_fd_,
-                            reinterpret_cast<sockaddr *>(&cliaddr),
-                            &len);
+    socket_t cfd = ::accept(listen_fd_, reinterpret_cast<sockaddr*>(&cliaddr), &len);
     if (!is_valid_socket(cfd))
     {
         int err = sock_errno_local();
@@ -176,30 +175,29 @@ void TcpServerTransport::disconnect()
     in_next_ = 0;
 }
 
-void TcpServerTransport::send(const void *data, size_t len, bool more)
+void TcpServerTransport::send(const void* data, size_t len, bool more)
 {
     if (!is_valid_socket(client_fd_))
         throw std::runtime_error("TcpServerTransport: no client connected");
 
-    out_parts_.emplace_back(static_cast<const char *>(data), len);
+    out_parts_.emplace_back(static_cast<const char*>(data), len);
     if (!more)
     {
         if (!rawtcp::send_parts(client_fd_, out_parts_))
         {
             out_parts_.clear();
-            throw std::runtime_error(
-                make_socket_error_str("TcpServerTransport: send_parts failed"));
+            throw std::runtime_error(make_socket_error_str("TcpServerTransport: send_parts failed"));
         }
         out_parts_.clear();
     }
 }
 
-void TcpServerTransport::send_text(const std::string &s, bool more)
+void TcpServerTransport::send_text(const std::string& s, bool more)
 {
     send(s.data(), s.size(), more);
 }
 
-void TcpServerTransport::recv(void *data, size_t len)
+void TcpServerTransport::recv(void* data, size_t len)
 {
     if (!is_valid_socket(client_fd_))
         throw std::runtime_error("TcpServerTransport: no client connected");
@@ -214,11 +212,10 @@ void TcpServerTransport::recv(void *data, size_t len)
         }
     }
 
-    const std::string &frame = in_parts_[in_next_++];
+    const std::string& frame = in_parts_[in_next_++];
     if (frame.size() != len)
     {
-        throw std::runtime_error("TcpServerTransport: recv size mismatch (expected " +
-                                 std::to_string(len) + ", got " +
+        throw std::runtime_error("TcpServerTransport: recv size mismatch (expected " + std::to_string(len) + ", got " +
                                  std::to_string(frame.size()) + ")");
     }
     std::memcpy(data, frame.data(), len);
@@ -242,7 +239,7 @@ std::string TcpServerTransport::recv_text()
     return in_parts_[in_next_++];
 }
 
-bool TcpServerTransport::recv_multipart(std::vector<std::string> &parts)
+bool TcpServerTransport::recv_multipart(std::vector<std::string>& parts)
 {
     if (!is_valid_socket(client_fd_))
         return false;
