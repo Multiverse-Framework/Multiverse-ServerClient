@@ -184,10 +184,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    std::signal(SIGINT, [](int){
-        std::printf("[Server] Caught SIGINT (Ctrl+C), shutting down...\n");
-        ShutdownManager::request_shutdown();
-    });
+    ShutdownManager::install_signal_handlers();
 
     // -------------------------------------------------------------------------
     // Launch each enabled transport

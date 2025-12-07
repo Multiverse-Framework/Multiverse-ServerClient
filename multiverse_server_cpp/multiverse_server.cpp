@@ -594,16 +594,9 @@ EMultiverseServerState MultiverseServer::receive_data()
         std::vector<std::vector<uint8_t>> payloads;
         if (!recv_message(message_spec_int, payloads))
         {
-            if (transport_->type() == ServerTransportType::Zmq)
-            {
-                throw zmq::error_t();
-            }
-            else
-            {
-                instance_shutdown = true;
-                sockets_need_clean_up[socket_addr] = true;
-                return EMultiverseServerState::ReceiveRequestMetaData;
-            }
+            instance_shutdown = true;
+            sockets_need_clean_up[socket_addr] = true;
+            return EMultiverseServerState::ReceiveRequestMetaData;
         }
 
         if (message_spec_int == 0 && payloads.size() == 0)
@@ -1786,60 +1779,110 @@ void MultiverseServer::send_receive_data()
 #if USE_ZMQ
 void start_multiverse_server(const std::string& server_socket_addr)
 {
-    std::map<std::string, std::thread> workers;
+    mv_log("[Server-ZMQ] Dispatcher started at %s", server_socket_addr.c_str());
+
     zmq::socket_t server_socket(server_context, zmq::socket_type::rep);
     server_socket.set(zmq::sockopt::rcvtimeo, 100);
-
+    server_socket.set(zmq::sockopt::linger, 0);
     server_socket.bind(server_socket_addr);
-    mv_log("[Server] Create server socket %s\n", server_socket_addr.c_str());
 
-    std::string receive_addr;
+    std::map<std::string, std::shared_ptr<MultiverseServer>> servers;
+    std::map<std::string, std::thread> workers;
+    std::mutex worker_mutex;
 
     while (!ShutdownManager::is_shutdown())
     {
         zmq::message_t request;
-        zmq::recv_result_t res = server_socket.recv(request, zmq::recv_flags::none);
+        auto res = server_socket.recv(request, zmq::recv_flags::none);
 
         if (!res)
         {
             if (ShutdownManager::is_shutdown())
-            {
                 break;
-            }
             continue;
         }
 
-        receive_addr = request.to_string();
-        mv_log("[Server] Received request to open socket %s.\n", receive_addr.c_str());
+        std::string receive_addr = request.to_string();
+        mv_log("[Server-ZMQ] Received handshake request: %s", receive_addr.c_str());
 
-        if (workers.count(receive_addr) == 0)
+        std::thread old_thread;
+        std::shared_ptr<MultiverseServer> old_server;
+
         {
-            mv_log("[Server] Created server %s.\n", receive_addr.c_str());
-            workers[receive_addr] = std::thread([receive_addr]() {
-                MultiverseServer multiverse_server(receive_addr);
-                sleep_ms(500);
-                multiverse_server.start();
+            std::lock_guard<std::mutex> lock(worker_mutex);
+
+            auto it = workers.find(receive_addr);
+            if (it != workers.end())
+            {
+                mv_log("[Server-ZMQ] Found existing worker on %s — stopping…", receive_addr.c_str());
+                old_thread = std::move(it->second);
+                old_server = servers[receive_addr];
+
+                workers.erase(it);
+                servers.erase(receive_addr);
+            }
+        }
+
+        if (old_server)
+        {
+            mv_log("[Server-ZMQ] Stopping worker %s", receive_addr.c_str());
+            old_server->stop();
+
+            if (old_thread.joinable())
+                old_thread.join();
+
+            mv_log("[Server-ZMQ] Old worker stopped: %s", receive_addr.c_str());
+        }
+
+        auto server = std::make_shared<MultiverseServer>(receive_addr);
+
+        {
+            std::lock_guard<std::mutex> lock(worker_mutex);
+
+            servers[receive_addr] = server;
+
+            workers[receive_addr] = std::thread([server, receive_addr]() {
+                try
+                {
+                    mv_log("[Server-ZMQ-Worker] Starting worker on %s", receive_addr.c_str());
+                    server->start();
+                    mv_log("[Server-ZMQ-Worker] Worker %s exited", receive_addr.c_str());
+                }
+                catch (const std::exception& e)
+                {
+                    mv_log("[Server-ZMQ-Worker] Exception on %s: %s", receive_addr.c_str(), e.what());
+                }
             });
         }
 
         zmq::message_t response(receive_addr.size());
-        memcpy(response.data(), receive_addr.c_str(), receive_addr.size());
+        memcpy(response.data(), receive_addr.data(), receive_addr.size());
         server_socket.send(response, zmq::send_flags::none);
     }
 
-    mv_log("[Server] Shutdown requested, closing REP socket...\n");
-    server_socket.close();
+    mv_log("[Server-ZMQ] Shutdown requested. Stopping workers...");
 
-    mv_log("[Server] Stopping workers...\n");
+    {
+        std::lock_guard<std::mutex> lock(worker_mutex);
+        for (auto& [addr, srv] : servers)
+        {
+            mv_log("[Server-ZMQ] Stopping worker server: %s", addr.c_str());
+            srv->stop();
+        }
+    }
+
     for (auto& [addr, t] : workers)
     {
+        mv_log("[Server-ZMQ] Joining thread: %s", addr.c_str());
         if (t.joinable())
             t.join();
     }
 
-    mv_log("[Server] All workers stopped.\n");
+    server_socket.set(zmq::sockopt::linger, 0);
+    server_socket.close();
+    server_context.shutdown();
+    mv_log("[Server-ZMQ] Dispatcher stopped cleanly.");
 }
-
 #endif
 
 #if USE_TCP
@@ -2171,13 +2214,11 @@ void start_multiverse_server_udp(const std::string& host, const std::string& por
             });
         }
 
-        // ✅ Respond to client
         std::vector<std::string> resp = {worker_addr};
         if (!rawudp::send_parts_to(sock, resp, (sockaddr*)&from, fromlen))
             mv_log("[Server-UDP] Failed to send handshake response to client.");
     }
 
-    // === Dispatcher shutting down ===
     mv_log("[Server-UDP] Shutdown requested — stopping all workers...");
 
     {
@@ -2191,8 +2232,7 @@ void start_multiverse_server_udp(const std::string& host, const std::string& por
             }
         }
         lock.unlock();
-
-        // ✅ Join threads outside of lock to prevent deadlock
+        
         for (auto& [addr, t] : workers)
         {
             if (t.joinable())
