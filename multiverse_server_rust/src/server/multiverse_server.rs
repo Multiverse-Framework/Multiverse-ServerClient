@@ -456,6 +456,14 @@ impl MultiverseServer {
 
         // Handle data messages (spec >= 2)
         if message_spec >= 2 {
+            debug!(
+                "[Server] Received data message: spec={}, send_sizes=[{}-{}-{}]",
+                message_spec,
+                self.send_buffer.buffer_double.size,
+                self.send_buffer.buffer_uint8.size,
+                self.send_buffer.buffer_uint16.size
+            );
+
             if payloads.is_empty() || payloads[0].len() != 8 {
                 anyhow::bail!("Invalid time payload");
             }
@@ -475,18 +483,55 @@ impl MultiverseServer {
             drop(worlds);
 
             // Process data buffers based on message_spec
+            let idx = 1;
             if message_spec == 3 && payloads.len() == 2 {
                 // One buffer type
-                self.copy_buffer_data(&payloads[1])?;
+                if self.send_buffer.buffer_double.size > 0
+                    && self.send_buffer.buffer_uint8.size == 0
+                    && self.send_buffer.buffer_uint16.size == 0
+                {
+                    self.copy_to_buffer_double(&payloads[idx])?;
+                } else if self.send_buffer.buffer_double.size == 0
+                    && self.send_buffer.buffer_uint8.size > 0
+                    && self.send_buffer.buffer_uint16.size == 0
+                {
+                    self.copy_to_buffer_uint8(&payloads[idx])?;
+                } else if self.send_buffer.buffer_double.size == 0
+                    && self.send_buffer.buffer_uint8.size == 0
+                    && self.send_buffer.buffer_uint16.size > 0
+                {
+                    self.copy_to_buffer_uint16(&payloads[idx])?;
+                } else {
+                    anyhow::bail!("Invalid message spec 3 with buffer sizes");
+                }
             } else if message_spec == 4 && payloads.len() == 3 {
                 // Two buffer types
-                self.copy_buffer_data(&payloads[1])?;
-                self.copy_buffer_data(&payloads[2])?;
+                if self.send_buffer.buffer_double.size > 0
+                    && self.send_buffer.buffer_uint8.size > 0
+                    && self.send_buffer.buffer_uint16.size == 0
+                {
+                    self.copy_to_buffer_double(&payloads[idx])?;
+                    self.copy_to_buffer_uint8(&payloads[idx + 1])?;
+                } else if self.send_buffer.buffer_double.size > 0
+                    && self.send_buffer.buffer_uint8.size == 0
+                    && self.send_buffer.buffer_uint16.size > 0
+                {
+                    self.copy_to_buffer_double(&payloads[idx])?;
+                    self.copy_to_buffer_uint16(&payloads[idx + 1])?;
+                } else if self.send_buffer.buffer_double.size == 0
+                    && self.send_buffer.buffer_uint8.size > 0
+                    && self.send_buffer.buffer_uint16.size > 0
+                {
+                    self.copy_to_buffer_uint8(&payloads[idx])?;
+                    self.copy_to_buffer_uint16(&payloads[idx + 1])?;
+                } else {
+                    anyhow::bail!("Invalid message spec 4 with buffer sizes");
+                }
             } else if message_spec == 5 && payloads.len() == 4 {
                 // Three buffer types
-                self.copy_buffer_data(&payloads[1])?;
-                self.copy_buffer_data(&payloads[2])?;
-                self.copy_buffer_data(&payloads[3])?;
+                self.copy_to_buffer_double(&payloads[idx])?;
+                self.copy_to_buffer_uint8(&payloads[idx + 1])?;
+                self.copy_to_buffer_uint16(&payloads[idx + 2])?;
             }
 
             return Ok(ServerState::BindSendData);
@@ -496,7 +541,78 @@ impl MultiverseServer {
         }
     }
 
-    fn copy_buffer_data(&mut self, _data: &[u8]) -> Result<()> {
+    fn copy_to_buffer_double(&mut self, data: &[u8]) -> Result<()> {
+        let expected_size = self.send_buffer.buffer_double.size * std::mem::size_of::<f64>();
+        if data.len() != expected_size {
+            anyhow::bail!(
+                "Buffer size mismatch for double: expected {} bytes, got {}",
+                expected_size,
+                data.len()
+            );
+        }
+
+        // Allocate the buffer if needed
+        if self.send_buffer.buffer_double.data.len() != self.send_buffer.buffer_double.size {
+            self.send_buffer.buffer_double.data = vec![0.0; self.send_buffer.buffer_double.size];
+        }
+
+        // Copy bytes to f64 buffer
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                data.as_ptr(),
+                self.send_buffer.buffer_double.data.as_mut_ptr() as *mut u8,
+                expected_size,
+            );
+        }
+
+        Ok(())
+    }
+
+    fn copy_to_buffer_uint8(&mut self, data: &[u8]) -> Result<()> {
+        let expected_size = self.send_buffer.buffer_uint8.size;
+        if data.len() != expected_size {
+            anyhow::bail!(
+                "Buffer size mismatch for uint8: expected {} bytes, got {}",
+                expected_size,
+                data.len()
+            );
+        }
+
+        // Allocate the buffer if needed
+        if self.send_buffer.buffer_uint8.data.len() != self.send_buffer.buffer_uint8.size {
+            self.send_buffer.buffer_uint8.data = vec![0u8; self.send_buffer.buffer_uint8.size];
+        }
+
+        // Copy bytes directly
+        self.send_buffer.buffer_uint8.data.copy_from_slice(data);
+
+        Ok(())
+    }
+
+    fn copy_to_buffer_uint16(&mut self, data: &[u8]) -> Result<()> {
+        let expected_size = self.send_buffer.buffer_uint16.size * std::mem::size_of::<u16>();
+        if data.len() != expected_size {
+            anyhow::bail!(
+                "Buffer size mismatch for uint16: expected {} bytes, got {}",
+                expected_size,
+                data.len()
+            );
+        }
+
+        // Allocate the buffer if needed
+        if self.send_buffer.buffer_uint16.data.len() != self.send_buffer.buffer_uint16.size {
+            self.send_buffer.buffer_uint16.data = vec![0u16; self.send_buffer.buffer_uint16.size];
+        }
+
+        // Copy bytes to u16 buffer
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                data.as_ptr(),
+                self.send_buffer.buffer_uint16.data.as_mut_ptr() as *mut u8,
+                expected_size,
+            );
+        }
+
         Ok(())
     }
 
@@ -793,11 +909,80 @@ impl MultiverseServer {
             .cloned()
             .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
 
+        // Clear data_vec for fresh binding
+        self.send_buffer.buffer_double.data_vec.clear();
+        self.send_buffer.buffer_uint8.data_vec.clear();
+        self.send_buffer.buffer_uint16.data_vec.clear();
+
+        // Collect attribute names first to avoid borrow checker issues
+        let mut attr_names = Vec::new();
+        if let Some(send_obj) = self.send_objects_json.as_object() {
+            for (_object_name, attributes) in send_obj {
+                if let Some(attr_array) = attributes.as_array() {
+                    for attr_value in attr_array {
+                        if let Some(attr_name) = attr_value.as_str() {
+                            attr_names.push(attr_name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Populate data_vec based on collected attributes
+        for attr_name in attr_names {
+            self.add_send_attribute(&attr_name)?;
+        }
+
+        debug!(
+            "[Server] bind_send_objects: data_vec sizes: double={}, uint8={}, uint16={}",
+            self.send_buffer.buffer_double.data_vec.len(),
+            self.send_buffer.buffer_uint8.data_vec.len(),
+            self.send_buffer.buffer_uint16.data_vec.len()
+        );
+
         // Add to response
         if let Some(response_obj) = self.response_meta_data_json.as_object_mut() {
             response_obj.insert("send".to_string(), self.send_objects_json.clone());
         }
-        
+
+        Ok(())
+    }
+
+    fn add_send_attribute(&mut self, attr_name: &str) -> Result<()> {
+        let attr_map_double = init_attribute_map_double();
+        let attr_map_uint8 = init_attribute_map_uint8();
+        let attr_map_uint16 = init_attribute_map_uint16();
+
+        // Check if it's a double attribute
+        if let Some((attr_type, default_data)) = attr_map_double.get(attr_name) {
+            if let Some(conversion_scale) = self.conversion_map.conversion_map_double.get(attr_type) {
+                for i in 0..default_data.len() {
+                    let conversion = conversion_scale.get(i).copied().unwrap_or(1.0);
+                    self.send_buffer.buffer_double.data_vec.push((default_data[i], conversion));
+                }
+            }
+        }
+
+        // Check if it's a uint8 attribute
+        if let Some((attr_type, default_data)) = attr_map_uint8.get(attr_name) {
+            if let Some(conversion_scale) = self.conversion_map.conversion_map_uint8.get(attr_type) {
+                for i in 0..default_data.len() {
+                    let conversion = conversion_scale.get(i).copied().unwrap_or(0);
+                    self.send_buffer.buffer_uint8.data_vec.push((default_data[i], conversion));
+                }
+            }
+        }
+
+        // Check if it's a uint16 attribute
+        if let Some((attr_type, default_data)) = attr_map_uint16.get(attr_name) {
+            if let Some(conversion_scale) = self.conversion_map.conversion_map_uint16.get(attr_type) {
+                for i in 0..default_data.len() {
+                    let conversion = conversion_scale.get(i).copied().unwrap_or(0);
+                    self.send_buffer.buffer_uint16.data_vec.push((default_data[i], conversion));
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -822,7 +1007,70 @@ impl MultiverseServer {
     }
 
     async fn bind_receive_objects(&mut self) -> Result<()> {
-        // In full implementation, bind receive objects
+        // Clear data_vec for fresh binding
+        self.receive_buffer.buffer_double.data_vec.clear();
+        self.receive_buffer.buffer_uint8.data_vec.clear();
+        self.receive_buffer.buffer_uint16.data_vec.clear();
+
+        // Collect attribute names first to avoid borrow checker issues
+        let mut attr_names = Vec::new();
+        if let Some(receive_obj) = self.receive_objects_json.as_object() {
+            for (_object_name, attributes) in receive_obj {
+                if let Some(attr_array) = attributes.as_array() {
+                    for attr_value in attr_array {
+                        if let Some(attr_name) = attr_value.as_str() {
+                            attr_names.push(attr_name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Populate data_vec based on collected attributes
+        for attr_name in attr_names {
+            self.add_receive_attribute(&attr_name)?;
+        }
+
+        Ok(())
+    }
+
+    fn add_receive_attribute(&mut self, attr_name: &str) -> Result<()> {
+        let attr_map_double = init_attribute_map_double();
+        let attr_map_uint8 = init_attribute_map_uint8();
+        let attr_map_uint16 = init_attribute_map_uint16();
+
+        // Check if it's a double attribute
+        if let Some((attr_type, default_data)) = attr_map_double.get(attr_name) {
+            if let Some(conversion_scale) = self.conversion_map.conversion_map_double.get(attr_type) {
+                for i in 0..default_data.len() {
+                    // Use inverse conversion for receive (1.0 / conversion)
+                    let conversion = conversion_scale.get(i).copied().unwrap_or(1.0);
+                    let inv_conversion = if conversion != 0.0 { 1.0 / conversion } else { 1.0 };
+                    self.receive_buffer.buffer_double.data_vec.push((default_data[i], inv_conversion));
+                }
+            }
+        }
+
+        // Check if it's a uint8 attribute
+        if let Some((attr_type, default_data)) = attr_map_uint8.get(attr_name) {
+            if let Some(conversion_scale) = self.conversion_map.conversion_map_uint8.get(attr_type) {
+                for i in 0..default_data.len() {
+                    let conversion = conversion_scale.get(i).copied().unwrap_or(0);
+                    self.receive_buffer.buffer_uint8.data_vec.push((default_data[i], conversion));
+                }
+            }
+        }
+
+        // Check if it's a uint16 attribute
+        if let Some((attr_type, default_data)) = attr_map_uint16.get(attr_name) {
+            if let Some(conversion_scale) = self.conversion_map.conversion_map_uint16.get(attr_type) {
+                for i in 0..default_data.len() {
+                    let conversion = conversion_scale.get(i).copied().unwrap_or(0);
+                    self.receive_buffer.buffer_uint16.data_vec.push((default_data[i], conversion));
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -857,6 +1105,16 @@ impl MultiverseServer {
         self.receive_buffer.buffer_double.size = self.receive_buffer.buffer_double.data_vec.len();
         self.receive_buffer.buffer_uint8.size = self.receive_buffer.buffer_uint8.data_vec.len();
         self.receive_buffer.buffer_uint16.size = self.receive_buffer.buffer_uint16.data_vec.len();
+
+        debug!(
+            "[Server] init_send_and_receive_data: send=[{}-{}-{}], receive=[{}-{}-{}]",
+            self.send_buffer.buffer_double.size,
+            self.send_buffer.buffer_uint8.size,
+            self.send_buffer.buffer_uint16.size,
+            self.receive_buffer.buffer_double.size,
+            self.receive_buffer.buffer_uint8.size,
+            self.receive_buffer.buffer_uint16.size
+        );
     }
 
     async fn wait_for_other_send_data(&mut self) -> Result<()> {
@@ -884,7 +1142,48 @@ impl MultiverseServer {
     }
 
     async fn bind_send_data(&mut self) -> Result<()> {
-        // Bind send data from buffers
+        // Copy data from send_buffer to world objects
+        // This makes data available for other workers to read
+        let mut worlds = WORLDS.lock();
+        let world = worlds.entry(self.world_name.clone()).or_insert_with(World::default);
+
+        // Process send_objects_json to update world objects
+        if let Some(send_obj) = self.send_objects_json.as_object() {
+            let mut data_idx = 0;
+
+            for (object_name, attributes) in send_obj {
+                if let Some(attr_array) = attributes.as_array() {
+                    for attr_value in attr_array {
+                        if let Some(attr_name) = attr_value.as_str() {
+                            // Get or create the object and attribute in world
+                            let object = world.objects.entry(object_name.clone()).or_insert_with(Object::default);
+                            let attribute = object.attributes.entry(attr_name.to_string()).or_insert_with(AttributeData::default);
+
+                            // Determine attribute size from attribute map
+                            let attr_map_double = init_attribute_map_double();
+                            if let Some((_, default_data)) = attr_map_double.get(attr_name) {
+                                // Ensure attribute data is initialized
+                                if attribute.attribute_double.data.is_empty() {
+                                    attribute.attribute_double.data = default_data.clone();
+                                }
+
+                                // Copy received data with conversion
+                                for i in 0..default_data.len() {
+                                    if data_idx < self.send_buffer.buffer_double.size {
+                                        let received_value = self.send_buffer.buffer_double.data[data_idx];
+                                        let conversion = self.send_buffer.buffer_double.data_vec[data_idx].1;
+                                        attribute.attribute_double.data[i] = received_value * conversion;
+                                        data_idx += 1;
+                                    }
+                                }
+                                attribute.attribute_double.is_sent = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -899,7 +1198,59 @@ impl MultiverseServer {
     }
 
     async fn bind_receive_data(&mut self) -> Result<()> {
-        // Bind receive data to buffers
+        // Allocate receive buffer data if needed
+        if self.receive_buffer.buffer_double.data.len() != self.receive_buffer.buffer_double.size {
+            self.receive_buffer.buffer_double.data = vec![0.0; self.receive_buffer.buffer_double.size];
+        }
+        if self.receive_buffer.buffer_uint8.data.len() != self.receive_buffer.buffer_uint8.size {
+            self.receive_buffer.buffer_uint8.data = vec![0u8; self.receive_buffer.buffer_uint8.size];
+        }
+        if self.receive_buffer.buffer_uint16.data.len() != self.receive_buffer.buffer_uint16.size {
+            self.receive_buffer.buffer_uint16.data = vec![0u16; self.receive_buffer.buffer_uint16.size];
+        }
+
+        // Read data from world objects
+        let worlds = WORLDS.lock();
+        let world = worlds.get(&self.world_name);
+
+        if let Some(world) = world {
+            if let Some(receive_obj) = self.receive_objects_json.as_object() {
+                let mut data_idx = 0;
+
+                for (object_name, attributes) in receive_obj {
+                    if let Some(attr_array) = attributes.as_array() {
+                        for attr_value in attr_array {
+                            if let Some(attr_name) = attr_value.as_str() {
+                                // Read from world objects
+                                if let Some(object) = world.objects.get(object_name.as_str()) {
+                                    if let Some(attribute) = object.attributes.get(attr_name) {
+                                        let attr_map_double = init_attribute_map_double();
+                                        if let Some((_, default_data)) = attr_map_double.get(attr_name) {
+                                            // Copy data to receive buffer with conversion
+                                            for i in 0..default_data.len() {
+                                                if data_idx < self.receive_buffer.buffer_double.size
+                                                    && i < attribute.attribute_double.data.len()
+                                                {
+                                                    let world_value = attribute.attribute_double.data[i];
+                                                    let conversion = if data_idx < self.receive_buffer.buffer_double.data_vec.len() {
+                                                        self.receive_buffer.buffer_double.data_vec[data_idx].1
+                                                    } else {
+                                                        1.0
+                                                    };
+                                                    self.receive_buffer.buffer_double.data[data_idx] = world_value * conversion;
+                                                    data_idx += 1;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
