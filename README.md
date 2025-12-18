@@ -144,13 +144,13 @@ This section demonstrates how to start the **server** and **clients** for **ZMQ*
 Receiver:
 
 ```bash
-./bin/test_multiverse_client_all --transport zmq --mode receiver --host tcp://127.0.0.1 --server 7000 --client 7001 --sim sim_1
+./bin/test_multiverse_client_all --transport zmq --mode sender --host tcp://127.0.0.1 --server 7000 --client 7001 --sim sim_1
 ```
 
 Sender:
 
 ```bash
-./bin/test_multiverse_client_all --transport zmq --mode sender --host tcp://127.0.0.1 --server 7000 --client 7002 --sim sim_2
+./bin/test_multiverse_client_all --transport zmq --mode receiver --host tcp://127.0.0.1 --server 7000 --client 7002 --sim sim_2
 ```
 
 ### 🪟 Windows (PowerShell)
