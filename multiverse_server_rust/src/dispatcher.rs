@@ -13,6 +13,45 @@ use crate::server::MultiverseServer;
 use crate::utils::should_shutdown;
 use crate::protocol::{raw_tcp, raw_udp};
 
+/// Helper function to check and spawn workers if needed
+/// Returns true if a new worker was spawned, false if already running
+async fn ensure_worker_spawned<F, Fut>(
+    workers: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
+    worker_addr: &str,
+    worker_fn: F,
+) -> Result<bool>
+where
+    F: FnOnce() -> Fut + 'static,
+    Fut: std::future::Future<Output = Result<()>> + 'static,
+{
+    let mut workers_map = workers.lock().await;
+
+    // Remove finished workers
+    if let Some(handle) = workers_map.get(worker_addr) {
+        if handle.is_finished() {
+            info!("Worker for {} found but was finished. Removing to restart.", worker_addr);
+            workers_map.remove(worker_addr);
+        }
+    }
+
+    // Check if worker already exists
+    if workers_map.contains_key(worker_addr) {
+        debug!("Worker for {} already running.", worker_addr);
+        return Ok(false);
+    }
+
+    // Spawn new worker
+    let worker_addr_clone = worker_addr.to_string();
+    let handle = tokio::task::spawn_local(async move {
+        if let Err(e) = worker_fn().await {
+            error!("[Worker] Error on {}: {}", worker_addr_clone, e);
+        }
+    });
+
+    workers_map.insert(worker_addr.to_string(), handle);
+    Ok(true)
+}
+
 pub async fn start_tcp_dispatcher(host: String, port: String) -> Result<()> {
     let addr = format!("{}:{}", host, port);
     let listener = TcpListener::bind(&addr)
@@ -124,35 +163,27 @@ async fn handle_tcp_handshake(
     let worker_addr = format!("{}:{}", host, worker_port);
     info!("[Server-TCP] Launching worker for {}", worker_addr);
 
-    // Spawn worker if not already running
-    let mut workers_map = workers.lock().await;
+    // Spawn worker if not already running using helper function
+    let worker_host = host.clone();
+    let worker_port_str = worker_port.to_string();
+    let workers_clone = Arc::clone(&workers);
 
-    if let Some(handle) = workers_map.get(&worker_addr) {
-        if handle.is_finished() {
-            info!("[Server-TCP] Worker for {} found but was finished. Removing to restart.", worker_addr);
-            workers_map.remove(&worker_addr);
-        }
-    }
-
-    if !workers_map.contains_key(&worker_addr) {
-        let worker_host = host.clone();
-        let worker_port_str = worker_port.to_string();
-        let worker_addr_clone = worker_addr.clone(); // Clone before moving
-
-        let handle = tokio::task::spawn_local(async move {
-            if let Err(e) = run_tcp_worker(&worker_host, &worker_port_str).await {
-                error!("[Server-TCP-Worker] Error on {}: {}", worker_addr_clone, e);
+    let spawned = ensure_worker_spawned(
+        workers_clone,
+        &worker_addr,
+        move || {
+            let host = worker_host;
+            let port = worker_port_str;
+            async move {
+                run_tcp_worker(&host, &port).await
             }
-        });
+        },
+    )
+    .await?;
 
-        workers_map.insert(worker_addr.clone(), handle);
-
-        // Give worker time to start
-        drop(workers_map);
+    // Give worker time to start if it was just spawned
+    if spawned {
         sleep(Duration::from_millis(500)).await;
-    } else {
-        debug!("[Server-TCP] Worker for {} already running.", worker_addr);
-        drop(workers_map);
     }
 
     // Send response with worker address
@@ -246,38 +277,27 @@ pub async fn start_udp_dispatcher(host: String, port: String) -> Result<()> {
         let worker_addr = format!("{}:{}", host, worker_port);
         info!("[Server-UDP] Launching worker for {}", worker_addr);
 
-        // Spawn worker if not already running
-        let mut workers_map = workers.lock().await;
+        // Spawn worker if not already running using helper function
+        let worker_host = host.clone();
+        let worker_port_str = worker_port.to_string();
+        let workers_clone = Arc::clone(&workers);
 
-        if let Some(handle) = workers_map.get(&worker_addr) {
-            if handle.is_finished() {
-                info!("[Server-UDP] Worker for {} found but was finished. Removing to restart.", worker_addr);
-                workers_map.remove(&worker_addr);
-            }
-        }
-
-        if !workers_map.contains_key(&worker_addr) {
-            let worker_host = host.clone();
-            let worker_port_str = worker_port.to_string();
-            let worker_addr_clone = worker_addr.clone(); // Clone before moving
-
-            let handle = tokio::task::spawn_local(async move {
-                if let Err(e) = run_udp_worker(&worker_host, &worker_port_str).await {
-                    error!(
-                        "[Server-UDP-Worker] Error on {}: {}",
-                        worker_addr_clone, e
-                    );
+        let spawned = ensure_worker_spawned(
+            workers_clone,
+            &worker_addr,
+            move || {
+                let host = worker_host;
+                let port = worker_port_str;
+                async move {
+                    run_udp_worker(&host, &port).await
                 }
-            });
+            },
+        )
+        .await?;
 
-            workers_map.insert(worker_addr.clone(), handle);
-
-            // Give worker time to start
-            drop(workers_map);
+        // Give worker time to start if it was just spawned
+        if spawned {
             sleep(Duration::from_millis(300)).await;
-        } else {
-            debug!("[Server-UDP] Worker for {} already running.", worker_addr);
-            drop(workers_map);
         }
 
         // Send response with worker address
