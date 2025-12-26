@@ -3,4 +3,4 @@ ext/msys2
 *.o
 **/target/**
 **/Cargo.lock
-
+logs/*
