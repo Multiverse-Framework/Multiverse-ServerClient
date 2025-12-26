@@ -254,7 +254,9 @@ static Json::Value sort_meta_data_json(const Json::Value& original)
 }
 
 MultiverseServer::MultiverseServer(const std::string& zmq_endpoint)
-    : protocol_(ServerTransportType::Zmq)
+    : protocol_(ServerTransportType::Zmq),
+      compression_config_(multiverse::CompressionConfig::from_env()),
+      compressor_(compression_config_)
 {
 #if USE_ZMQ
     socket_addr = zmq_endpoint;
@@ -278,7 +280,9 @@ MultiverseServer::MultiverseServer(const std::string& zmq_endpoint)
 }
 
 MultiverseServer::MultiverseServer(const std::string& host, const std::string& port, ServerTransportType t)
-    : protocol_(t)
+    : protocol_(t),
+      compression_config_(multiverse::CompressionConfig::from_env()),
+      compressor_(compression_config_)
 {
     tcp_host = host;
     tcp_port = port;
@@ -628,10 +632,17 @@ EMultiverseServerState MultiverseServer::receive_data()
         }
         else if (message_spec_int >= 2)
         {
-            if (payloads.empty() || payloads[0].size() != sizeof(double))
+            // Decode compression information
+            int32_t base_spec;
+            multiverse::CompressionType compression_type;
+            multiverse::decode_message_spec(message_spec_int, base_spec, compression_type);
+
+            if (payloads.empty() || payloads[0].size() < sizeof(double))
             {
-                throw std::invalid_argument("[Server] Received invalid time payload at socket " + socket_addr + ".");
+                throw std::invalid_argument("[Server] Received invalid payload at socket " + socket_addr + ".");
             }
+
+            // Extract time
             std::memcpy(&worlds[world_name].time, payloads[0].data(), sizeof(double));
 
             if (worlds[world_name].time < 0.0)
@@ -641,8 +652,80 @@ EMultiverseServerState MultiverseServer::receive_data()
                     "] at socket " + socket_addr + ".");
             }
 
+            // Handle compressed vs uncompressed data
+            if (compression_type != multiverse::CompressionType::None)
+            {
+                // Compressed format: [time: 8][uncompressed_size: 4][compressed_size: 4] in first payload,
+                // compressed data in second payload
+                if (payloads[0].size() < 16)
+                {
+                    throw std::invalid_argument("[Server] Invalid compressed header at socket " + socket_addr + ".");
+                }
+
+                uint32_t uncompressed_size, compressed_size;
+                std::memcpy(&uncompressed_size, payloads[0].data() + 8, sizeof(uint32_t));
+                std::memcpy(&compressed_size, payloads[0].data() + 12, sizeof(uint32_t));
+
+                if (payloads.size() < 2)
+                {
+                    throw std::invalid_argument("[Server] Missing compressed payload at socket " + socket_addr + ".");
+                }
+
+                // Decompress
+                std::vector<uint8_t> decompressed;
+                try
+                {
+                    compressor_.decompress(
+                        payloads[1].data(), payloads[1].size(),
+                        compression_type, uncompressed_size,
+                        decompressed
+                    );
+                }
+                catch (const std::exception& e)
+                {
+                    throw std::runtime_error(
+                        std::string("[Server] Decompression failed at socket ") + socket_addr + ": " + e.what()
+                    );
+                }
+
+                // Split decompressed data into buffers
+                size_t offset = 0;
+                if (send_buffer.buffer_double.size > 0)
+                {
+                    size_t size = send_buffer.buffer_double.size * sizeof(double);
+                    if (offset + size > decompressed.size())
+                    {
+                        throw std::invalid_argument("[Server] Decompressed data size mismatch at socket " + socket_addr + ".");
+                    }
+                    std::memcpy(send_buffer.buffer_double.data, decompressed.data() + offset, size);
+                    offset += size;
+                }
+                if (send_buffer.buffer_uint8_t.size > 0)
+                {
+                    size_t size = send_buffer.buffer_uint8_t.size * sizeof(uint8_t);
+                    if (offset + size > decompressed.size())
+                    {
+                        throw std::invalid_argument("[Server] Decompressed data size mismatch at socket " + socket_addr + ".");
+                    }
+                    std::memcpy(send_buffer.buffer_uint8_t.data, decompressed.data() + offset, size);
+                    offset += size;
+                }
+                if (send_buffer.buffer_uint16_t.size > 0)
+                {
+                    size_t size = send_buffer.buffer_uint16_t.size * sizeof(uint16_t);
+                    if (offset + size > decompressed.size())
+                    {
+                        throw std::invalid_argument("[Server] Decompressed data size mismatch at socket " + socket_addr + ".");
+                    }
+                    std::memcpy(send_buffer.buffer_uint16_t.data, decompressed.data() + offset, size);
+                }
+
+                return EMultiverseServerState::BindSendData;
+            }
+
+            // Uncompressed format (original protocol)
             size_t idx = 1;
-            if (message_spec_int == 3 && payloads.size() == 2)
+            if (base_spec == 3 && payloads.size() == 2)
             {
                 if (send_buffer.buffer_double.size > 0 && send_buffer.buffer_uint8_t.size == 0 &&
                     send_buffer.buffer_uint16_t.size == 0)
@@ -664,11 +747,11 @@ EMultiverseServerState MultiverseServer::receive_data()
                 }
                 else
                 {
-                    throw std::invalid_argument("[Server] Received invalid message [message_spec_int = " +
-                                                std::to_string(message_spec_int) + "] at socket " + socket_addr + ".");
+                    throw std::invalid_argument("[Server] Received invalid message [base_spec = " +
+                                                std::to_string(base_spec) + "] at socket " + socket_addr + ".");
                 }
             }
-            else if (message_spec_int == 4 && payloads.size() == 3)
+            else if (base_spec == 4 && payloads.size() == 3)
             {
                 if (send_buffer.buffer_double.size > 0 && send_buffer.buffer_uint8_t.size > 0 &&
                     send_buffer.buffer_uint16_t.size == 0)
@@ -696,11 +779,11 @@ EMultiverseServerState MultiverseServer::receive_data()
                 }
                 else
                 {
-                    throw std::invalid_argument("[Server] Received invalid message [message_spec_int = " +
-                                                std::to_string(message_spec_int) + "] at socket " + socket_addr + ".");
+                    throw std::invalid_argument("[Server] Received invalid message [base_spec = " +
+                                                std::to_string(base_spec) + "] at socket " + socket_addr + ".");
                 }
             }
-            else if (message_spec_int == 5 && payloads.size() == 4)
+            else if (base_spec == 5 && payloads.size() == 4)
             {
                 std::memcpy(send_buffer.buffer_double.data, payloads[idx + 0].data(),
                     send_buffer.buffer_double.size * sizeof(double));
@@ -1711,68 +1794,125 @@ void MultiverseServer::send_receive_data()
     {
         const int message_spec_int = 0;
         send_message(&message_spec_int, sizeof(message_spec_int), /*more*/ false);
-    }
-    else
-    {
-        const int message_spec_int = 2 + (receive_buffer.buffer_double.size > 0) +
-                                     (receive_buffer.buffer_uint8_t.size > 0) +
-                                     (receive_buffer.buffer_uint16_t.size > 0);
-        send_message(&message_spec_int, sizeof(message_spec_int), /*more*/ true);
+        return;
     }
 
+    // Calculate total size and prepare buffers
+    size_t total_size = 0;
+    bool has_double = receive_buffer.buffer_double.size > 0;
+    bool has_uint8 = receive_buffer.buffer_uint8_t.size > 0;
+    bool has_uint16 = receive_buffer.buffer_uint16_t.size > 0;
+
+    if (has_double) total_size += receive_buffer.buffer_double.size * sizeof(double);
+    if (has_uint8) total_size += receive_buffer.buffer_uint8_t.size * sizeof(uint8_t);
+    if (has_uint16) total_size += receive_buffer.buffer_uint16_t.size * sizeof(uint16_t);
+
+    // Determine if compression should be used
+    multiverse::CompressionType comp_type = multiverse::CompressionType::None;
+    std::vector<uint8_t> compressed_data;
+    bool use_compression = compressor_.should_compress(total_size);
+
+    if (use_compression && total_size > 0)
+    {
+        // Combine all buffers
+        std::vector<uint8_t> combined;
+        combined.reserve(total_size);
+
+        if (has_double)
+        {
+            const uint8_t* ptr = reinterpret_cast<const uint8_t*>(receive_buffer.buffer_double.data);
+            combined.insert(combined.end(), ptr, ptr + receive_buffer.buffer_double.size * sizeof(double));
+        }
+        if (has_uint8)
+        {
+            combined.insert(combined.end(),
+                receive_buffer.buffer_uint8_t.data,
+                receive_buffer.buffer_uint8_t.data + receive_buffer.buffer_uint8_t.size);
+        }
+        if (has_uint16)
+        {
+            const uint8_t* ptr = reinterpret_cast<const uint8_t*>(receive_buffer.buffer_uint16_t.data);
+            combined.insert(combined.end(), ptr, ptr + receive_buffer.buffer_uint16_t.size * sizeof(uint16_t));
+        }
+
+        // Compress
+        try
+        {
+            compressor_.compress(combined.data(), combined.size(), compressed_data, comp_type);
+        }
+        catch (const std::exception& e)
+        {
+            printf("[Server] Compression failed: %s. Sending uncompressed.\n", e.what());
+            use_compression = false;
+            comp_type = multiverse::CompressionType::None;
+        }
+    }
+
+    // Calculate and send message spec with compression
+    int buffer_count = (has_double ? 1 : 0) + (has_uint8 ? 1 : 0) + (has_uint16 ? 1 : 0);
+    int32_t message_spec_int = multiverse::encode_message_spec(2 + buffer_count, comp_type);
+    send_message(&message_spec_int, sizeof(message_spec_int), /*more*/ true);
+
+    // Get world time
     double message_time;
     if (worlds[world_name].simulations[simulation_name].meta_data_state == EMetaDataState::Reset)
     {
         worlds[world_name].simulations[simulation_name].meta_data_state = EMetaDataState::Normal;
-        const double world_time = 0.0;
-        memcpy(&message_time, &world_time, sizeof(double));
+        message_time = 0.0;
     }
     else
     {
-        memcpy(&message_time, &worlds[world_name].time, sizeof(double));
+        message_time = worlds[world_name].time;
     }
 
-    if (receive_buffer.buffer_double.size > 0 || receive_buffer.buffer_uint8_t.size > 0 ||
-        receive_buffer.buffer_uint16_t.size > 0)
+    if (use_compression && total_size > 0)
     {
-        send_message(&message_time, sizeof(message_time), /*more*/ true);
-        if (receive_buffer.buffer_double.size > 0)
+        // Send compressed format: [time: 8][uncompressed_size: 4][compressed_size: 4][compressed_data]
+        struct Header
         {
-            if (receive_buffer.buffer_uint8_t.size > 0 || receive_buffer.buffer_uint16_t.size > 0)
-            {
-                send_message(receive_buffer.buffer_double.data, receive_buffer.buffer_double.size * sizeof(double),
-                    /*more*/ true);
-            }
-            else
-            {
-                send_message(receive_buffer.buffer_double.data, receive_buffer.buffer_double.size * sizeof(double),
-                    /*more*/ false);
-            }
-        }
+            double time;
+            uint32_t uncompressed_size;
+            uint32_t compressed_size;
+        } header;
 
-        if (receive_buffer.buffer_uint8_t.size > 0)
-        {
-            if (receive_buffer.buffer_uint16_t.size > 0)
-            {
-                send_message(receive_buffer.buffer_uint8_t.data, receive_buffer.buffer_uint8_t.size * sizeof(double),
-                    /*more*/ true);
-            }
-            else
-            {
-                send_message(receive_buffer.buffer_uint8_t.data, receive_buffer.buffer_uint8_t.size * sizeof(double),
-                    /*more*/ false);
-            }
-        }
+        header.time = message_time;
+        header.uncompressed_size = static_cast<uint32_t>(total_size);
+        header.compressed_size = static_cast<uint32_t>(compressed_data.size());
 
-        if (receive_buffer.buffer_uint16_t.size > 0)
-        {
-            send_message(receive_buffer.buffer_uint16_t.data, receive_buffer.buffer_uint16_t.size * sizeof(double),
-                /*more*/ false);
-        }
+        send_message(&header, sizeof(header), /*more*/ true);
+        send_message(compressed_data.data(), compressed_data.size(), /*more*/ false);
     }
     else
     {
-        send_message(&message_time, sizeof(message_time), /*more*/ false);
+        // Send uncompressed format (original protocol)
+        if (total_size > 0)
+        {
+            send_message(&message_time, sizeof(message_time), /*more*/ true);
+
+            if (has_double)
+            {
+                bool more = has_uint8 || has_uint16;
+                send_message(receive_buffer.buffer_double.data,
+                    receive_buffer.buffer_double.size * sizeof(double), /*more*/ more);
+            }
+
+            if (has_uint8)
+            {
+                bool more = has_uint16;
+                send_message(receive_buffer.buffer_uint8_t.data,
+                    receive_buffer.buffer_uint8_t.size * sizeof(uint8_t), /*more*/ more);
+            }
+
+            if (has_uint16)
+            {
+                send_message(receive_buffer.buffer_uint16_t.data,
+                    receive_buffer.buffer_uint16_t.size * sizeof(uint16_t), /*more*/ false);
+            }
+        }
+        else
+        {
+            send_message(&message_time, sizeof(message_time), /*more*/ false);
+        }
     }
 }
 

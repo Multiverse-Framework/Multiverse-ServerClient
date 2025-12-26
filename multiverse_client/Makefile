@@ -130,6 +130,7 @@ $(LIB_DIR)/libmultiverse_client_%$(EXT_SO): $(CLIENT_SRC)
 		multiverse_client_$*.o \
 		$(foreach s,$(TRANSPORT_CLIENT_SRC),$(basename $(s))_$*.o) \
 		-l:libzmq$(EXT_IMP_STATIC) \
+		-llz4 \
 		$(SYS_LIBS)
 
 # Static lib per variant: libmultiverse_client_<variant>.(lib|a)
@@ -160,6 +161,7 @@ $(LIB_DIR)/libmultiverse_client_json_%$(EXT_SO): $(CLIENT_JSON_SRC) $(LIB_DIR)/l
 		$(LIB_DIR)/libmultiverse_client_$*$(EXT_A) \
 		-l:libzmq$(EXT_IMP_STATIC) \
 		-l:libjsoncpp$(EXT_IMP_STATIC) \
+		-llz4 \
 		$(SYS_LIBS)
 
 $(LIB_DIR)/libmultiverse_client_json_%$(EXT_A): $(CLIENT_JSON_SRC) $(LIB_DIR)/libmultiverse_client_%$(EXT_A)
@@ -194,6 +196,7 @@ $(BIN_DIR)test_multiverse_client_%$(EXE_EXT): $(TEST_CLIENT_SRC) $(CLIENT_SRC) $
 		-L$(EXT_LIB_DIR) \
 		-l:libzmq$(EXT_IMP_STATIC) \
 		-l:libjsoncpp$(EXT_IMP_STATIC) \
+		-llz4 \
 		$(SYS_LIBS) -o $@
 
 $(BIN_DIR)test_multiverse_client_rgb_%$(EXE_EXT): $(TEST_RGB_CLIENT_SRC) $(CLIENT_SRC) $(CLIENT_JSON_SRC)
@@ -202,6 +205,7 @@ $(BIN_DIR)test_multiverse_client_rgb_%$(EXE_EXT): $(TEST_RGB_CLIENT_SRC) $(CLIEN
 		-L$(EXT_LIB_DIR) \
 		-l:libzmq$(EXT_IMP_STATIC) \
 		-l:libjsoncpp$(EXT_IMP_STATIC) \
+		-llz4 \
 		$(SYS_LIBS) -o $@
 
 # --- original "default" client targets (all transports enabled) --------------
@@ -222,6 +226,7 @@ $(CLIENT_SHARED_LIB): $(CLIENT_SRC)
 		$(CLIENT_OBJ) \
 		$(foreach s,$(TRANSPORT_CLIENT_SRC),$(basename $(s)).o) \
 		-l:libzmq$(EXT_IMP_STATIC) \
+		-llz4 \
 		$(SYS_LIBS)
 
 $(CLIENT_STATIC_LIB): $(CLIENT_SRC)
@@ -249,6 +254,7 @@ $(CLIENT_JSON_SHARED_LIB): $(CLIENT_JSON_SRC) $(CLIENT_SHARED_LIB)
 		$(CLIENT_IMPORT_STATIC_LIB) \
 		-l:libzmq$(EXT_IMP_STATIC) \
 		-l:libjsoncpp$(EXT_IMP_STATIC) \
+		-llz4 \
 		$(SYS_LIBS)
 
 $(CLIENT_JSON_STATIC_LIB): $(CLIENT_JSON_SRC) $(CLIENT_STATIC_LIB)
@@ -264,6 +270,7 @@ $(PYBIND_LIB): $(PYBIND_SRC) $(CLIENT_STATIC_LIB)
 		$< -o $@ \
 		$(CLIENT_STATIC_LIB) \
 		-l:libzmq$(EXT_IMP_STATIC) \
+		-llz4 \
 		$(PYTHON_LIB) \
 		$(SYS_LIBS)
 

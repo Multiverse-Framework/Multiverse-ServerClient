@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstdlib>
 #include "transport/client_transport.hpp"
+#include "utils/compression.hpp"
 
 template<class T>
 struct TypedBuffer { T* data=nullptr; size_t size=0; };
@@ -83,6 +84,10 @@ private:
     IClientTransport* transport_ = nullptr;
     double reset_cool_down = 1.0;
     double reset_time = 0.0;
+
+    // Compression support
+    multiverse::CompressionConfig compression_config_ = multiverse::CompressionConfig::from_env();
+    multiverse::Compressor compressor_{compression_config_};
 
     // helpers
     void ensure_transport_allocated();

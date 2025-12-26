@@ -28,6 +28,7 @@
 #include <json/json.h>
 #include <json/reader.h>
 #include "transport/server_transport.hpp"
+#include "utils/compression.hpp"
 
 /**
  * @brief Attributes that can be sent and received between the server and the
@@ -330,6 +331,13 @@ private:
      *
      */
     ConversionMap conversion_map;
+
+    /**
+     * @brief The compressor for real-time compression/decompression.
+     *
+     */
+    multiverse::Compressor compressor_;
+    multiverse::CompressionConfig compression_config_;
 
     /**
      * @brief The name of the world.

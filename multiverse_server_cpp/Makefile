@@ -7,12 +7,12 @@ CXX = g++
 # --------------------------------------------------------------------
 ifeq ($(OS),Windows_NT)
     CXXFLAGS = -std=c++17 -Wall -I./ -I./transport -I./../ext/include -I./../ext/
-    LDFLAGS = -L./../lib/windows -l:libzmq.dll.a -l:libjsoncpp.dll.a -lws2_32 -pthread
+    LDFLAGS = -L./../lib/windows -l:libzmq.dll.a -l:libjsoncpp.dll.a -llz4 -lws2_32 -pthread
     BIN_DIR = ..\bin
     EXE_EXT = .exe
 else
     CXXFLAGS = -std=c++17 -Wall -I./ -I./transport -I./../ext/include -I./../ext/
-    LDFLAGS = -L./../lib/linux -l:libzmq.a -l:libjsoncpp.a -pthread
+    LDFLAGS = -L./../lib/linux -l:libzmq.a -l:libjsoncpp.a -llz4 -pthread
     BIN_DIR = ../bin
     EXE_EXT =
 endif

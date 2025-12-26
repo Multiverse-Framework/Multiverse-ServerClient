@@ -280,32 +280,93 @@ void MultiverseClient::send_request_meta_data() {
 }
 
 void MultiverseClient::send_send_data() {
-    const int message_spec_int = 2 + (send_buffer.buffer_double.size > 0) +
-                                      (send_buffer.buffer_uint8_t.size > 0) +
-                                      (send_buffer.buffer_uint16_t.size > 0);
-    // header
-    transport_->send(&message_spec_int, sizeof(int), true);
+    // Calculate total size
+    size_t total_size = 0;
+    bool has_double = send_buffer.buffer_double.size > 0;
+    bool has_uint8 = send_buffer.buffer_uint8_t.size > 0;
+    bool has_uint16 = send_buffer.buffer_uint16_t.size > 0;
 
-    // world_time
-    const bool more_after_time = (message_spec_int != 2);
-    transport_->send(world_time, sizeof(double), more_after_time);
+    if (has_double) total_size += send_buffer.buffer_double.size * sizeof(double);
+    if (has_uint8) total_size += send_buffer.buffer_uint8_t.size * sizeof(uint8_t);
+    if (has_uint16) total_size += send_buffer.buffer_uint16_t.size * sizeof(uint16_t);
 
-    if (message_spec_int > 2) {
-        auto send_more = [&](bool last) -> bool { return !last; };
+    // Determine if compression should be used
+    multiverse::CompressionType comp_type = multiverse::CompressionType::None;
+    std::vector<uint8_t> compressed_data;
+    bool use_compression = compressor_.should_compress(total_size);
 
-        size_t remain = (send_buffer.buffer_double.size > 0) + (send_buffer.buffer_uint8_t.size > 0) + (send_buffer.buffer_uint16_t.size > 0);
+    if (use_compression && total_size > 0) {
+        // Combine all buffers
+        std::vector<uint8_t> combined;
+        combined.reserve(total_size);
 
-        if (send_buffer.buffer_double.size > 0) {
-            bool last = (--remain == 0);
-            transport_->send(send_buffer.buffer_double.data, send_buffer.buffer_double.size * sizeof(double), send_more(last));
+        if (has_double) {
+            const uint8_t* ptr = reinterpret_cast<const uint8_t*>(send_buffer.buffer_double.data);
+            combined.insert(combined.end(), ptr, ptr + send_buffer.buffer_double.size * sizeof(double));
         }
-        if (send_buffer.buffer_uint8_t.size > 0) {
-            bool last = (--remain == 0);
-            transport_->send(send_buffer.buffer_uint8_t.data, send_buffer.buffer_uint8_t.size * sizeof(uint8_t), send_more(last));
+        if (has_uint8) {
+            combined.insert(combined.end(),
+                send_buffer.buffer_uint8_t.data,
+                send_buffer.buffer_uint8_t.data + send_buffer.buffer_uint8_t.size);
         }
-        if (send_buffer.buffer_uint16_t.size > 0) {
-            bool last = (--remain == 0);
-            transport_->send(send_buffer.buffer_uint16_t.data, send_buffer.buffer_uint16_t.size * sizeof(uint16_t), send_more(last));
+        if (has_uint16) {
+            const uint8_t* ptr = reinterpret_cast<const uint8_t*>(send_buffer.buffer_uint16_t.data);
+            combined.insert(combined.end(), ptr, ptr + send_buffer.buffer_uint16_t.size * sizeof(uint16_t));
+        }
+
+        // Compress
+        try {
+            compressor_.compress(combined.data(), combined.size(), compressed_data, comp_type);
+        } catch (const std::exception& e) {
+            printf("[Client %s] Compression failed: %s. Sending uncompressed.\n", client_port.c_str(), e.what());
+            use_compression = false;
+            comp_type = multiverse::CompressionType::None;
+        }
+    }
+
+    // Calculate and send message spec with compression
+    int buffer_count = (has_double ? 1 : 0) + (has_uint8 ? 1 : 0) + (has_uint16 ? 1 : 0);
+    int32_t message_spec_int = multiverse::encode_message_spec(2 + buffer_count, comp_type);
+    transport_->send(&message_spec_int, sizeof(int32_t), true);
+
+    if (use_compression && total_size > 0) {
+        // Send compressed format: [time: 8][uncompressed_size: 4][compressed_size: 4][compressed_data]
+        struct Header {
+            double time;
+            uint32_t uncompressed_size;
+            uint32_t compressed_size;
+        } header;
+
+        header.time = *world_time;
+        header.uncompressed_size = static_cast<uint32_t>(total_size);
+        header.compressed_size = static_cast<uint32_t>(compressed_data.size());
+
+        transport_->send(&header, sizeof(header), true);
+        transport_->send(compressed_data.data(), compressed_data.size(), false);
+    } else {
+        // Send uncompressed format (original protocol)
+        const bool more_after_time = (buffer_count > 0);
+        transport_->send(world_time, sizeof(double), more_after_time);
+
+        if (buffer_count > 0) {
+            auto send_more = [&](bool last) -> bool { return !last; };
+            size_t remain = buffer_count;
+
+            if (has_double) {
+                bool last = (--remain == 0);
+                transport_->send(send_buffer.buffer_double.data,
+                    send_buffer.buffer_double.size * sizeof(double), send_more(last));
+            }
+            if (has_uint8) {
+                bool last = (--remain == 0);
+                transport_->send(send_buffer.buffer_uint8_t.data,
+                    send_buffer.buffer_uint8_t.size * sizeof(uint8_t), send_more(last));
+            }
+            if (has_uint16) {
+                bool last = (--remain == 0);
+                transport_->send(send_buffer.buffer_uint16_t.data,
+                    send_buffer.buffer_uint16_t.size * sizeof(uint16_t), send_more(last));
+            }
         }
     }
 }
@@ -341,38 +402,100 @@ void MultiverseClient::receive_data() {
         }
         return;
     } else if (message_spec_int >= 2) {
-        // world_time
-        transport_->recv(world_time, sizeof(*world_time));
+        // Decode compression information
+        int32_t base_spec;
+        multiverse::CompressionType compression_type;
+        multiverse::decode_message_spec(message_spec_int, base_spec, compression_type);
 
-        if (message_spec_int == 3) {
-            if (receive_buffer.buffer_double.size > 0 && receive_buffer.buffer_uint8_t.size == 0 && receive_buffer.buffer_uint16_t.size == 0) {
-                transport_->recv(receive_buffer.buffer_double.data, receive_buffer.buffer_double.size * sizeof(double));
-            } else if (receive_buffer.buffer_double.size == 0 && receive_buffer.buffer_uint8_t.size > 0 && receive_buffer.buffer_uint16_t.size == 0) {
-                transport_->recv(receive_buffer.buffer_uint8_t.data, receive_buffer.buffer_uint8_t.size * sizeof(uint8_t));
-            } else if (receive_buffer.buffer_double.size == 0 && receive_buffer.buffer_uint8_t.size == 0 && receive_buffer.buffer_uint16_t.size > 0) {
-                transport_->recv(receive_buffer.buffer_uint16_t.data, receive_buffer.buffer_uint16_t.size * sizeof(uint16_t));
-            } else {
-                throw std::runtime_error("The receive buffer is not initialized correctly.");
+        // Handle compressed vs uncompressed data
+        if (compression_type != multiverse::CompressionType::None) {
+            // Compressed format: receive [time: 8][uncompressed_size: 4][compressed_size: 4][compressed_data]
+            struct Header {
+                double time;
+                uint32_t uncompressed_size;
+                uint32_t compressed_size;
+            } header;
+
+            transport_->recv(&header, sizeof(header));
+            *world_time = header.time;
+
+            // Receive compressed data
+            std::vector<uint8_t> compressed(header.compressed_size);
+            transport_->recv(compressed.data(), header.compressed_size);
+
+            // Decompress
+            std::vector<uint8_t> decompressed;
+            try {
+                compressor_.decompress(
+                    compressed.data(), compressed.size(),
+                    compression_type, header.uncompressed_size,
+                    decompressed
+                );
+            } catch (const std::exception& e) {
+                throw std::runtime_error(
+                    std::string("[Client ") + client_port + "] Decompression failed: " + e.what()
+                );
             }
-        } else if (message_spec_int == 4) {
-            if (receive_buffer.buffer_uint16_t.size == 0) {
-                transport_->recv(receive_buffer.buffer_double.data, receive_buffer.buffer_double.size * sizeof(double));
-                transport_->recv(receive_buffer.buffer_uint8_t.data, receive_buffer.buffer_uint8_t.size * sizeof(uint8_t));
-            } else if (receive_buffer.buffer_double.size == 0) {
-                transport_->recv(receive_buffer.buffer_uint8_t.data, receive_buffer.buffer_uint8_t.size * sizeof(uint8_t));
-                transport_->recv(receive_buffer.buffer_uint16_t.data, receive_buffer.buffer_uint16_t.size * sizeof(uint16_t));
-            } else if (receive_buffer.buffer_uint8_t.size == 0) {
-                transport_->recv(receive_buffer.buffer_double.data, receive_buffer.buffer_double.size * sizeof(double));
-                transport_->recv(receive_buffer.buffer_uint16_t.data, receive_buffer.buffer_uint16_t.size * sizeof(uint16_t));
-            } else {
-                throw std::runtime_error("The receive buffer is not initialized correctly.");
+
+            // Split decompressed data into buffers
+            size_t offset = 0;
+            if (receive_buffer.buffer_double.size > 0) {
+                size_t size = receive_buffer.buffer_double.size * sizeof(double);
+                if (offset + size > decompressed.size()) {
+                    throw std::runtime_error("[Client " + client_port + "] Decompressed data size mismatch.");
+                }
+                std::memcpy(receive_buffer.buffer_double.data, decompressed.data() + offset, size);
+                offset += size;
             }
-        } else if (message_spec_int == 5) {
-            transport_->recv(receive_buffer.buffer_double.data, receive_buffer.buffer_double.size * sizeof(double));
-            transport_->recv(receive_buffer.buffer_uint8_t.data, receive_buffer.buffer_uint8_t.size * sizeof(uint8_t));
-            transport_->recv(receive_buffer.buffer_uint16_t.data, receive_buffer.buffer_uint16_t.size * sizeof(uint16_t));
-        } else if (message_spec_int != 2) {
-            throw std::runtime_error("The message type [" + std::to_string(message_spec_int) + "] is not recognized.");
+            if (receive_buffer.buffer_uint8_t.size > 0) {
+                size_t size = receive_buffer.buffer_uint8_t.size * sizeof(uint8_t);
+                if (offset + size > decompressed.size()) {
+                    throw std::runtime_error("[Client " + client_port + "] Decompressed data size mismatch.");
+                }
+                std::memcpy(receive_buffer.buffer_uint8_t.data, decompressed.data() + offset, size);
+                offset += size;
+            }
+            if (receive_buffer.buffer_uint16_t.size > 0) {
+                size_t size = receive_buffer.buffer_uint16_t.size * sizeof(uint16_t);
+                if (offset + size > decompressed.size()) {
+                    throw std::runtime_error("[Client " + client_port + "] Decompressed data size mismatch.");
+                }
+                std::memcpy(receive_buffer.buffer_uint16_t.data, decompressed.data() + offset, size);
+            }
+        } else {
+            // Uncompressed format (original protocol)
+            transport_->recv(world_time, sizeof(*world_time));
+
+            if (base_spec == 3) {
+                if (receive_buffer.buffer_double.size > 0 && receive_buffer.buffer_uint8_t.size == 0 && receive_buffer.buffer_uint16_t.size == 0) {
+                    transport_->recv(receive_buffer.buffer_double.data, receive_buffer.buffer_double.size * sizeof(double));
+                } else if (receive_buffer.buffer_double.size == 0 && receive_buffer.buffer_uint8_t.size > 0 && receive_buffer.buffer_uint16_t.size == 0) {
+                    transport_->recv(receive_buffer.buffer_uint8_t.data, receive_buffer.buffer_uint8_t.size * sizeof(uint8_t));
+                } else if (receive_buffer.buffer_double.size == 0 && receive_buffer.buffer_uint8_t.size == 0 && receive_buffer.buffer_uint16_t.size > 0) {
+                    transport_->recv(receive_buffer.buffer_uint16_t.data, receive_buffer.buffer_uint16_t.size * sizeof(uint16_t));
+                } else {
+                    throw std::runtime_error("The receive buffer is not initialized correctly.");
+                }
+            } else if (base_spec == 4) {
+                if (receive_buffer.buffer_uint16_t.size == 0) {
+                    transport_->recv(receive_buffer.buffer_double.data, receive_buffer.buffer_double.size * sizeof(double));
+                    transport_->recv(receive_buffer.buffer_uint8_t.data, receive_buffer.buffer_uint8_t.size * sizeof(uint8_t));
+                } else if (receive_buffer.buffer_double.size == 0) {
+                    transport_->recv(receive_buffer.buffer_uint8_t.data, receive_buffer.buffer_uint8_t.size * sizeof(uint8_t));
+                    transport_->recv(receive_buffer.buffer_uint16_t.data, receive_buffer.buffer_uint16_t.size * sizeof(uint16_t));
+                } else if (receive_buffer.buffer_uint8_t.size == 0) {
+                    transport_->recv(receive_buffer.buffer_double.data, receive_buffer.buffer_double.size * sizeof(double));
+                    transport_->recv(receive_buffer.buffer_uint16_t.data, receive_buffer.buffer_uint16_t.size * sizeof(uint16_t));
+                } else {
+                    throw std::runtime_error("The receive buffer is not initialized correctly.");
+                }
+            } else if (base_spec == 5) {
+                transport_->recv(receive_buffer.buffer_double.data, receive_buffer.buffer_double.size * sizeof(double));
+                transport_->recv(receive_buffer.buffer_uint8_t.data, receive_buffer.buffer_uint8_t.size * sizeof(uint8_t));
+                transport_->recv(receive_buffer.buffer_uint16_t.data, receive_buffer.buffer_uint16_t.size * sizeof(uint16_t));
+            } else if (base_spec != 2) {
+                throw std::runtime_error("The message type [" + std::to_string(base_spec) + "] is not recognized.");
+            }
         }
     } else {
         throw std::runtime_error("The message type [" + std::to_string(message_spec_int) + "] is not recognized.");
