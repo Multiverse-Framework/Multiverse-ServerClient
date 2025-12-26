@@ -21,13 +21,25 @@ ZmqClientTransport::ZmqClientTransport()
         zmq_ctx_term(ctx_);
         throw std::runtime_error("ZmqClientTransport: zmq_socket(ZMQ_REQ) failed");
     }
+
+    // Set linger to 0 for immediate close without blocking
+    int linger = 0;
+    zmq_setsockopt(sock_, ZMQ_LINGER, &linger, sizeof(linger));
 }
 
 ZmqClientTransport::~ZmqClientTransport()
 {
-    disconnect();
+    // Close socket first
+    if (sock_)
+    {
+        zmq_close(sock_);
+        sock_ = nullptr;
+    }
+
+    // Set context to non-blocking termination to prevent hanging
     if (ctx_)
     {
+        zmq_ctx_set(ctx_, ZMQ_BLOCKY, 0);
         zmq_ctx_term(ctx_);
         ctx_ = nullptr;
     }
@@ -52,7 +64,7 @@ void ZmqClientTransport::disconnect()
         sock_ = nullptr;
     }
 
-    // create a new REQ socket if needed later
+    // Recreate a new REQ socket for potential reconnection
     if (ctx_)
     {
         sock_ = zmq_socket(ctx_, ZMQ_REQ);
@@ -60,6 +72,10 @@ void ZmqClientTransport::disconnect()
         {
             throw std::runtime_error("ZmqClientTransport: recreate zmq_socket failed");
         }
+
+        // Set linger to 0 for immediate close without blocking
+        int linger = 0;
+        zmq_setsockopt(sock_, ZMQ_LINGER, &linger, sizeof(linger));
     }
 }
 

@@ -71,8 +71,26 @@ std::map<std::string, size_t> attribute_map_uint16_t = {
 class MultiverseClientPybind final : public MultiverseClient
 {
 public:
-    MultiverseClientPybind()
+    MultiverseClientPybind(const std::string &transport = "Zmq")
     {
+        ClientTransportType transport_type;
+        if (transport == "Tcp")
+        {
+            transport_type = ClientTransportType::Tcp;
+        }
+        else if (transport == "Udp")
+        {
+            transport_type = ClientTransportType::Udp;
+        }
+        else if (transport == "Zmq")
+        {
+            transport_type = ClientTransportType::Zmq;
+        }
+        else
+        {
+            throw std::invalid_argument("Invalid transport type: " + transport + ". Must be 'Tcp', 'Udp', or 'Zmq'.");
+        }
+        set_transport(transport_type);
     }
 
     ~MultiverseClientPybind()
@@ -548,11 +566,16 @@ PYBIND11_MODULE(multiverse_client_pybind, handle)
         .def("connect", static_cast<void (MultiverseClient::*)(const std::string &, const std::string &, const std::string &)>(&MultiverseClient::connect))
         .def("start", &MultiverseClient::start)
         .def("communicate", &MultiverseClient::communicate)
-        .def("disconnect", &MultiverseClient::disconnect)
+        .def("disconnect", [](MultiverseClient &self) {
+            // Release GIL to prevent hanging during blocking ZMQ operations
+            pybind11::gil_scoped_release release;
+            self.disconnect();
+        }, "Disconnect from server")
         .def("get_time_now", &MultiverseClient::get_time_now);
 
     pybind11::class_<MultiverseClientPybind, MultiverseClient>(handle, "MultiverseClientPybind")
         .def(pybind11::init<>())
+        .def(pybind11::init<const std::string &>(), pybind11::arg("transport") = "Zmq")
         .def("get_world_time", &MultiverseClientPybind::get_world_time)
         .def("set_request_meta_data", &MultiverseClientPybind::set_request_meta_data)
         .def("get_response_meta_data", &MultiverseClientPybind::get_response_meta_data)
