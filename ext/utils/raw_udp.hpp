@@ -12,7 +12,7 @@
 #include <iomanip>
 
 #ifndef MAX_UDP_PAYLOAD
-#define MAX_UDP_PAYLOAD 1200u
+#define MAX_UDP_PAYLOAD 2000u
 #endif
 
 namespace rawudp {
@@ -73,27 +73,27 @@ inline bool encode_parts(const std::vector<std::string>& parts, std::vector<uint
         p += sizeof(le);
     };
 
-    mv_log("[rawudp] Handshake: Encoding part count: %u", n);
+    mv_log("[rawudp] Encoding part count: %u", n);
     put_u32(n);
 
     for (uint32_t i = 0; i < n; ++i) {
         const auto& s = parts[i];
         uint32_t sz = static_cast<uint32_t>(s.size());
 
-        mv_log("[rawudp] Handshake: Encoding part %u size: %u", i, sz);
+        mv_log("[rawudp] Encoding part %u size: %u", i, sz);
         put_u32(sz);
 
         if (sz > 0) {
-            mv_log("[rawudp] Handshake: Encoding part %u data (hex): %s",
+            mv_log("[rawudp] Encoding part %u data (hex): %s",
                    i, hex_dump(s).c_str());
             std::memcpy(p, s.data(), s.size());
             p += s.size();
         } else {
-            mv_log("[rawudp] Handshake: Part %u is empty.", i);
+            mv_log("[rawudp] Part %u is empty.", i);
         }
     }
 
-    mv_log("[rawudp] Handshake: Encode complete. Total size: %zu", out.size());
+    mv_log("[rawudp] Encode complete. Total size: %zu", out.size());
     return true;
 }
 
@@ -122,7 +122,7 @@ inline bool decode_parts(const uint8_t* buf, size_t len, std::vector<std::string
     };
 
     uint32_t n = 0;
-    mv_log("[rawudp] Handshake: Waiting to read part count (4 bytes)...");
+    mv_log("[rawudp] Waiting to read part count (4 bytes)...");
     if (!get_u32(n)) return false;
 
     if (n > 1000) {
@@ -130,13 +130,13 @@ inline bool decode_parts(const uint8_t* buf, size_t len, std::vector<std::string
         return false;
     }
 
-    mv_log("[rawudp] Handshake: Read part count: %u", n);
-    mv_log("[rawudp] Handshake: Total packet size received: %zu bytes", len);
+    mv_log("[rawudp] Read part count: %u", n);
+    mv_log("[rawudp] Total packet size received: %zu bytes", len);
     out.reserve(n);
 
     for (uint32_t i = 0; i < n; ++i) {
         uint32_t sz = 0;
-        mv_log("[rawudp] Handshake: Waiting to read size for part %u (4 bytes)...", i);
+        mv_log("[rawudp] Waiting to read size for part %u (4 bytes)...", i);
         if (!get_u32(sz)) return false;
 
         if (sz > MAX_UDP_PAYLOAD) {
@@ -144,7 +144,7 @@ inline bool decode_parts(const uint8_t* buf, size_t len, std::vector<std::string
             return false;
         }
 
-        mv_log("[rawudp] Handshake: Read size for part %u: %u", i, sz);
+        mv_log("[rawudp] Read size for part %u: %u", i, sz);
 
         if (p + sz > e) {
             mv_log("[rawudp] Truncated data for part %u (need %u bytes, have %zu).",
@@ -156,15 +156,15 @@ inline bool decode_parts(const uint8_t* buf, size_t len, std::vector<std::string
         p += sz;
 
         if (sz > 0) {
-            mv_log("[rawudp] Handshake: Read data for part %u (hex): %s",
+            mv_log("[rawudp] Read data for part %u (hex): %s",
                    i, hex_dump(s).c_str());
         } else {
-            mv_log("[rawudp] Handshake: Part %u is zero size.", i);
+            mv_log("[rawudp] Part %u is zero size.", i);
         }
         out.push_back(std::move(s));
     }
 
-    mv_log("[rawudp] Handshake: Successfully received all %u parts. Used %zu/%zu bytes",
+    mv_log("[rawudp] Successfully received all %u parts. Used %zu/%zu bytes",
            n, (size_t)(p - buf), len);
     return true;
 }
