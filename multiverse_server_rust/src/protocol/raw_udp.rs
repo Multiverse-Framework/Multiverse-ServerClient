@@ -4,7 +4,7 @@ use tokio::net::UdpSocket;
 use tokio::time::{timeout, Duration};
 use tracing::trace;
 
-const MAX_UDP_PAYLOAD: usize = 1200;
+const MAX_UDP_PAYLOAD: usize = 2000;
 
 /// Encode parts into a contiguous buffer for UDP transmission
 /// Layout: [part_count: u32][size1: u32][data1]...[sizeN: u32][dataN]
