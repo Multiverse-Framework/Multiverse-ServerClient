@@ -121,7 +121,7 @@ void MultiverseClient::start() {
 void MultiverseClient::connect() {
     flag = EMultiverseClientState::None;
     socket_addr = host + ":" + client_port;
-
+    ShutdownManager::reset();
     clean_up();
     if (!init_objects()) return;
 
