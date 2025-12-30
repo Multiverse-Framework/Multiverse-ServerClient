@@ -891,23 +891,75 @@ impl MultiverseServer {
         self.send_buffer.buffer_uint8.data_vec.clear();
         self.send_buffer.buffer_uint16.data_vec.clear();
 
-        // Collect attribute names first to avoid borrow checker issues
-        let mut attr_names = Vec::new();
+        // Build response send structure with value arrays
+        let mut response_send = serde_json::Map::new();
+
+        let attr_map_double = init_attribute_map_double();
+        let attr_map_uint8 = init_attribute_map_uint8();
+        let attr_map_uint16 = init_attribute_map_uint16();
+
         if let Some(send_obj) = self.send_objects_json.as_object() {
-            for (_object_name, attributes) in send_obj {
+            for (object_name, attributes) in send_obj {
+                let mut object_attrs = serde_json::Map::new();
+
                 if let Some(attr_array) = attributes.as_array() {
                     for attr_value in attr_array {
                         if let Some(attr_name) = attr_value.as_str() {
-                            attr_names.push(attr_name.to_string());
+                            // Process double attributes
+                            if let Some((attr_type, default_data)) = attr_map_double.get(attr_name) {
+                                if let Some(conversion_scale) = self.conversion_map.conversion_map_double.get(attr_type) {
+                                    let mut values = Vec::new();
+                                    for i in 0..default_data.len() {
+                                        let conversion = conversion_scale.get(i).copied().unwrap_or(1.0);
+                                        self.send_buffer.buffer_double.data_vec.push((default_data[i], conversion));
+
+                                        // Add value to response (converted)
+                                        let value = default_data[i] * conversion;
+                                        if value.is_nan() {
+                                            values.push(serde_json::Value::Null);
+                                        } else {
+                                            values.push(json!(value));
+                                        }
+                                    }
+                                    object_attrs.insert(attr_name.to_string(), json!(values));
+                                }
+                            }
+
+                            // Process uint8 attributes
+                            if let Some((attr_type, default_data)) = attr_map_uint8.get(attr_name) {
+                                if let Some(conversion_scale) = self.conversion_map.conversion_map_uint8.get(attr_type) {
+                                    let mut values = Vec::new();
+                                    for i in 0..default_data.len() {
+                                        let conversion = conversion_scale.get(i).copied().unwrap_or(0);
+                                        self.send_buffer.buffer_uint8.data_vec.push((default_data[i], conversion));
+
+                                        // Add value to response (right shift like C++)
+                                        values.push(json!(default_data[i] >> conversion));
+                                    }
+                                    object_attrs.insert(attr_name.to_string(), json!(values));
+                                }
+                            }
+
+                            // Process uint16 attributes
+                            if let Some((attr_type, default_data)) = attr_map_uint16.get(attr_name) {
+                                if let Some(conversion_scale) = self.conversion_map.conversion_map_uint16.get(attr_type) {
+                                    let mut values = Vec::new();
+                                    for i in 0..default_data.len() {
+                                        let conversion = conversion_scale.get(i).copied().unwrap_or(0);
+                                        self.send_buffer.buffer_uint16.data_vec.push((default_data[i], conversion));
+
+                                        // Add value to response (right shift like C++)
+                                        values.push(json!(default_data[i] >> conversion));
+                                    }
+                                    object_attrs.insert(attr_name.to_string(), json!(values));
+                                }
+                            }
                         }
                     }
                 }
-            }
-        }
 
-        // Populate data_vec based on collected attributes
-        for attr_name in attr_names {
-            self.add_send_attribute(&attr_name)?;
+                response_send.insert(object_name.clone(), json!(object_attrs));
+            }
         }
 
         debug!(
@@ -919,45 +971,7 @@ impl MultiverseServer {
 
         // Add to response
         if let Some(response_obj) = self.response_meta_data_json.as_object_mut() {
-            response_obj.insert("send".to_string(), self.send_objects_json.clone());
-        }
-
-        Ok(())
-    }
-
-    fn add_send_attribute(&mut self, attr_name: &str) -> Result<()> {
-        let attr_map_double = init_attribute_map_double();
-        let attr_map_uint8 = init_attribute_map_uint8();
-        let attr_map_uint16 = init_attribute_map_uint16();
-
-        // Check if it's a double attribute
-        if let Some((attr_type, default_data)) = attr_map_double.get(attr_name) {
-            if let Some(conversion_scale) = self.conversion_map.conversion_map_double.get(attr_type) {
-                for i in 0..default_data.len() {
-                    let conversion = conversion_scale.get(i).copied().unwrap_or(1.0);
-                    self.send_buffer.buffer_double.data_vec.push((default_data[i], conversion));
-                }
-            }
-        }
-
-        // Check if it's a uint8 attribute
-        if let Some((attr_type, default_data)) = attr_map_uint8.get(attr_name) {
-            if let Some(conversion_scale) = self.conversion_map.conversion_map_uint8.get(attr_type) {
-                for i in 0..default_data.len() {
-                    let conversion = conversion_scale.get(i).copied().unwrap_or(0);
-                    self.send_buffer.buffer_uint8.data_vec.push((default_data[i], conversion));
-                }
-            }
-        }
-
-        // Check if it's a uint16 attribute
-        if let Some((attr_type, default_data)) = attr_map_uint16.get(attr_name) {
-            if let Some(conversion_scale) = self.conversion_map.conversion_map_uint16.get(attr_type) {
-                for i in 0..default_data.len() {
-                    let conversion = conversion_scale.get(i).copied().unwrap_or(0);
-                    self.send_buffer.buffer_uint16.data_vec.push((default_data[i], conversion));
-                }
-            }
+            response_obj.insert("send".to_string(), json!(response_send));
         }
 
         Ok(())
@@ -970,10 +984,7 @@ impl MultiverseServer {
             .cloned()
             .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
 
-        // Add to response
-        if let Some(response_obj) = self.response_meta_data_json.as_object_mut() {
-            response_obj.insert("receive".to_string(), self.receive_objects_json.clone());
-        }
+        // Note: receive structure will be added to response in bind_receive_objects()
 
         Ok(())
     }
@@ -989,63 +1000,120 @@ impl MultiverseServer {
         self.receive_buffer.buffer_uint8.data_vec.clear();
         self.receive_buffer.buffer_uint16.data_vec.clear();
 
-        // Collect attribute names first to avoid borrow checker issues
-        let mut attr_names = Vec::new();
-        if let Some(receive_obj) = self.receive_objects_json.as_object() {
-            for (_object_name, attributes) in receive_obj {
-                if let Some(attr_array) = attributes.as_array() {
-                    for attr_value in attr_array {
-                        if let Some(attr_name) = attr_value.as_str() {
-                            attr_names.push(attr_name.to_string());
-                        }
-                    }
-                }
-            }
-        }
+        // Build response receive structure with value arrays
+        let mut response_receive = serde_json::Map::new();
 
-        // Populate data_vec based on collected attributes
-        for attr_name in attr_names {
-            self.add_receive_attribute(&attr_name)?;
-        }
-
-        Ok(())
-    }
-
-    fn add_receive_attribute(&mut self, attr_name: &str) -> Result<()> {
         let attr_map_double = init_attribute_map_double();
         let attr_map_uint8 = init_attribute_map_uint8();
         let attr_map_uint16 = init_attribute_map_uint16();
+        let cumulative_attrs = cumulative_attributes();
 
-        // Check if it's a double attribute
-        if let Some((attr_type, default_data)) = attr_map_double.get(attr_name) {
-            if let Some(conversion_scale) = self.conversion_map.conversion_map_double.get(attr_type) {
-                for i in 0..default_data.len() {
-                    // Use inverse conversion for receive (1.0 / conversion)
-                    let conversion = conversion_scale.get(i).copied().unwrap_or(1.0);
-                    let inv_conversion = if conversion != 0.0 { 1.0 / conversion } else { 1.0 };
-                    self.receive_buffer.buffer_double.data_vec.push((default_data[i], inv_conversion));
+        // Need to work with world objects - get mutable access
+        let mut worlds = WORLDS.lock();
+        let world = worlds.entry(self.world_name.clone()).or_insert_with(World::default);
+
+        if let Some(receive_obj) = self.receive_objects_json.as_object() {
+            for (object_name, attributes) in receive_obj {
+                let mut object_attrs = serde_json::Map::new();
+
+                if let Some(attr_array) = attributes.as_array() {
+                    for attr_value in attr_array {
+                        if let Some(attr_name) = attr_value.as_str() {
+                            // Get or create object and attribute in world
+                            let object = world.objects.entry(object_name.clone()).or_insert_with(Object::default);
+                            let attribute = object.attributes.entry(attr_name.to_string()).or_insert_with(AttributeData::default);
+
+                            // Handle cumulative attributes (like force, torque)
+                            let is_cumulative = cumulative_attrs.contains(&attr_name);
+
+                            // Process double attributes
+                            if let Some((attr_type, default_data)) = attr_map_double.get(attr_name) {
+                                // Initialize attribute data if needed
+                                if attribute.attribute_double.data.is_empty() {
+                                    attribute.attribute_double.data = default_data.clone();
+                                    if is_cumulative {
+                                        attribute.attribute_double.is_sent = true;
+                                    }
+                                }
+
+                                if let Some(conversion_scale) = self.conversion_map.conversion_map_double.get(attr_type) {
+                                    let mut values = Vec::new();
+                                    for i in 0..attribute.attribute_double.data.len() {
+                                        // For receive, use inverse conversion
+                                        let conversion = conversion_scale.get(i).copied().unwrap_or(1.0);
+                                        let inv_conversion = if conversion != 0.0 { 1.0 / conversion } else { 1.0 };
+                                        self.receive_buffer.buffer_double.data_vec.push((attribute.attribute_double.data[i], inv_conversion));
+
+                                        // Add value to response (with inverse conversion)
+                                        let value = attribute.attribute_double.data[i] * inv_conversion;
+                                        if value.is_nan() {
+                                            values.push(serde_json::Value::Null);
+                                        } else {
+                                            values.push(json!(value));
+                                        }
+                                    }
+                                    object_attrs.insert(attr_name.to_string(), json!(values));
+                                }
+                            }
+
+                            // Process uint8 attributes
+                            if let Some((attr_type, default_data)) = attr_map_uint8.get(attr_name) {
+                                // Initialize attribute data if needed
+                                if attribute.attribute_uint8.data.is_empty() {
+                                    attribute.attribute_uint8.data = default_data.clone();
+                                    if is_cumulative {
+                                        attribute.attribute_uint8.is_sent = true;
+                                    }
+                                }
+
+                                if let Some(conversion_scale) = self.conversion_map.conversion_map_uint8.get(attr_type) {
+                                    let mut values = Vec::new();
+                                    for i in 0..attribute.attribute_uint8.data.len() {
+                                        let conversion = conversion_scale.get(i).copied().unwrap_or(0);
+                                        self.receive_buffer.buffer_uint8.data_vec.push((attribute.attribute_uint8.data[i], conversion));
+
+                                        // Add value to response (right shift like C++)
+                                        values.push(json!(attribute.attribute_uint8.data[i] >> conversion));
+                                    }
+                                    object_attrs.insert(attr_name.to_string(), json!(values));
+                                }
+                            }
+
+                            // Process uint16 attributes
+                            if let Some((attr_type, default_data)) = attr_map_uint16.get(attr_name) {
+                                // Initialize attribute data if needed
+                                if attribute.attribute_uint16.data.is_empty() {
+                                    attribute.attribute_uint16.data = default_data.clone();
+                                    if is_cumulative {
+                                        attribute.attribute_uint16.is_sent = true;
+                                    }
+                                }
+
+                                if let Some(conversion_scale) = self.conversion_map.conversion_map_uint16.get(attr_type) {
+                                    let mut values = Vec::new();
+                                    for i in 0..attribute.attribute_uint16.data.len() {
+                                        let conversion = conversion_scale.get(i).copied().unwrap_or(0);
+                                        self.receive_buffer.buffer_uint16.data_vec.push((attribute.attribute_uint16.data[i], conversion));
+
+                                        // Add value to response (right shift like C++)
+                                        values.push(json!(attribute.attribute_uint16.data[i] >> conversion));
+                                    }
+                                    object_attrs.insert(attr_name.to_string(), json!(values));
+                                }
+                            }
+                        }
+                    }
                 }
+
+                response_receive.insert(object_name.clone(), json!(object_attrs));
             }
         }
 
-        // Check if it's a uint8 attribute
-        if let Some((attr_type, default_data)) = attr_map_uint8.get(attr_name) {
-            if let Some(conversion_scale) = self.conversion_map.conversion_map_uint8.get(attr_type) {
-                for i in 0..default_data.len() {
-                    let conversion = conversion_scale.get(i).copied().unwrap_or(0);
-                    self.receive_buffer.buffer_uint8.data_vec.push((default_data[i], conversion));
-                }
-            }
-        }
+        drop(worlds);
 
-        // Check if it's a uint16 attribute
-        if let Some((attr_type, default_data)) = attr_map_uint16.get(attr_name) {
-            if let Some(conversion_scale) = self.conversion_map.conversion_map_uint16.get(attr_type) {
-                for i in 0..default_data.len() {
-                    let conversion = conversion_scale.get(i).copied().unwrap_or(0);
-                    self.receive_buffer.buffer_uint16.data_vec.push((default_data[i], conversion));
-                }
-            }
+        // Add to response
+        if let Some(response_obj) = self.response_meta_data_json.as_object_mut() {
+            response_obj.insert("receive".to_string(), json!(response_receive));
         }
 
         Ok(())

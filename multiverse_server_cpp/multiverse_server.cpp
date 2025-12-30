@@ -1792,6 +1792,7 @@ void start_multiverse_server(const std::string& server_socket_addr)
 
     while (!ShutdownManager::is_shutdown())
     {
+        mv_log("[Server-ZMQ] Received handshake request: %s", server_socket_addr.c_str());
         zmq::message_t request;
         auto res = server_socket.recv(request, zmq::recv_flags::none);
 
@@ -2126,13 +2127,12 @@ void start_multiverse_server_udp(const std::string& host, const std::string& por
     std::map<std::string, std::thread> workers;
     std::mutex workers_mutex;
 
-    mv_log("[Server-UDP] Dispatcher started, waiting for handshakes...");
-
     while (!ShutdownManager::is_shutdown())
     {
         std::vector<std::string> parts;
         sockaddr_storage from{};
         socklen_t fromlen = sizeof(from);
+        mv_log("[Server-UDP] Received handshake request: %s:%s", host.c_str(), port.c_str());
 
         if (!rawudp::recv_parts_from(sock, parts, (sockaddr*)&from, &fromlen, 1000))
         {
