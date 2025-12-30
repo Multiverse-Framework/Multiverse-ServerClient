@@ -236,74 +236,181 @@ private:
 private:
     bool compute_request_and_response_meta_data() override
     {
+        response_meta_data_dict = pybind11::dict();
+
         if (response_meta_data_str.empty())
         {
-            response_meta_data_dict = pybind11::dict();
             return false;
         }
 
-        pybind11::module json_module = pybind11::module::import("json");
-
-        pybind11::object json_loads = json_module.attr("loads");
-
-        pybind11::object parsed_dict = json_loads(response_meta_data_str);
-
-        response_meta_data_dict = parsed_dict.cast<pybind11::dict>();
-
-        if (response_meta_data_dict.contains("time"))
+        try
         {
-            request_meta_data_dict["meta_data"] = response_meta_data_dict["meta_data"];
+            pybind11::module json_module = pybind11::module::import("json");
+            pybind11::object json_loads = json_module.attr("loads");
+            pybind11::object parsed = json_loads(response_meta_data_str);
+
+            // Must be a JSON object (dict)
+            if (!pybind11::isinstance<pybind11::dict>(parsed))
+            {
+                return false;
+            }
+
+            response_meta_data_dict = parsed.cast<pybind11::dict>();
+
+            // Must have "time" and it must be numeric and >= 0
+            if (!response_meta_data_dict.contains("time"))
+            {
+                return false;
+            }
+
+            pybind11::handle time_h = response_meta_data_dict["time"];
+            double time_val = 0.0;
+
+            if (pybind11::isinstance<pybind11::float_>(time_h))
+            {
+                time_val = time_h.cast<double>();
+            }
+            else if (pybind11::isinstance<pybind11::int_>(time_h))
+            {
+                time_val = static_cast<double>(time_h.cast<long long>());
+            }
+            else
+            {
+                return false;
+            }
+
+            if (time_val < 0.0)
+            {
+                return false;
+            }
+
+            if (!pybind11::isinstance<pybind11::dict>(request_meta_data_dict))
+            {
+                request_meta_data_dict = pybind11::dict();
+            }
+
+            // Copy meta_data if present (optional)
+            if (response_meta_data_dict.contains("meta_data"))
+            {
+                request_meta_data_dict["meta_data"] = response_meta_data_dict["meta_data"];
+            }
+
+            // IMPORTANT: ensure send/receive are OBJECTS (dict)
             request_meta_data_dict["send"] = pybind11::dict();
             request_meta_data_dict["receive"] = pybind11::dict();
 
+            auto is_buffer_size_key = [](const std::string& k) -> bool {
+                return (k == "double" || k == "uint8" || k == "uint16");
+            };
+
             if (response_meta_data_dict.contains("send"))
             {
-                for (const auto &send_objects : response_meta_data_dict["send"].cast<pybind11::dict>())
+                pybind11::handle send_h = response_meta_data_dict["send"];
+                if (pybind11::isinstance<pybind11::dict>(send_h))
                 {
-                    request_meta_data_dict["send"][send_objects.first] = pybind11::list();
-                    const pybind11::dict attributes = send_objects.second.cast<pybind11::dict>();
-                    for (const auto &attribute : attributes)
+                    pybind11::dict send_dict = send_h.cast<pybind11::dict>();
+
+                    for (const auto& send_obj : send_dict)
                     {
-                        request_meta_data_dict["send"][send_objects.first].cast<pybind11::list>().append(attribute.first.cast<std::string>());
+                        std::string object_name = pybind11::str(send_obj.first).cast<std::string>();
+                        if (is_buffer_size_key(object_name))
+                        {
+                            continue;
+                        }
+
+                        if (!pybind11::isinstance<pybind11::dict>(send_obj.second))
+                        {
+                            continue;
+                        }
+
+                        pybind11::dict attrs = send_obj.second.cast<pybind11::dict>();
+
+                        pybind11::list attr_list;
+                        for (const auto& attr_pair : attrs)
+                        {
+                            std::string attr_name = pybind11::str(attr_pair.first).cast<std::string>();
+                            attr_list.append(attr_name);
+                        }
+
+                        request_meta_data_dict["send"][send_obj.first] = attr_list;
                     }
                 }
             }
 
             if (response_meta_data_dict.contains("receive"))
             {
-                for (const auto &receive_objects : response_meta_data_dict["receive"].cast<pybind11::dict>())
+                pybind11::handle recv_h = response_meta_data_dict["receive"];
+                if (pybind11::isinstance<pybind11::dict>(recv_h))
                 {
-                    request_meta_data_dict["receive"][receive_objects.first] = pybind11::list();
-                    const pybind11::dict attributes = receive_objects.second.cast<pybind11::dict>();
-                    for (const auto &attribute : attributes)
+                    pybind11::dict recv_dict = recv_h.cast<pybind11::dict>();
+
+                    for (const auto& recv_obj : recv_dict)
                     {
-                        request_meta_data_dict["receive"][receive_objects.first].cast<pybind11::list>().append(attribute.first.cast<std::string>());
+                        std::string object_name = pybind11::str(recv_obj.first).cast<std::string>();
+                        if (is_buffer_size_key(object_name))
+                        {
+                            continue;
+                        }
+
+                        // attributes must be a dict
+                        if (!pybind11::isinstance<pybind11::dict>(recv_obj.second))
+                        {
+                            continue;
+                        }
+
+                        pybind11::dict attrs = recv_obj.second.cast<pybind11::dict>();
+
+                        pybind11::list attr_list;
+                        for (const auto& attr_pair : attrs)
+                        {
+                            std::string attr_name = pybind11::str(attr_pair.first).cast<std::string>();
+                            attr_list.append(attr_name);
+                        }
+
+                        request_meta_data_dict["receive"][recv_obj.first] = attr_list;
                     }
                 }
             }
-
             return true;
         }
-
-        return false;
+        catch (const pybind11::error_already_set& e)
+        {
+            // Optional debug:
+            printf("[Client %s] JSON parse/cast error: %s raw='%s'\n", client_port.c_str(), e.what(),
+                response_meta_data_str.c_str());
+            response_meta_data_dict = pybind11::dict();
+            return false;
+        }
+        catch (const std::exception& e)
+        {
+            // Optional debug:
+            printf(
+                "[Client %s] Exception: %s raw='%s'\n", client_port.c_str(), e.what(), response_meta_data_str.c_str());
+            response_meta_data_dict = pybind11::dict();
+            return false;
+        }
     }
 
-    void compute_request_buffer_sizes(std::map<std::string, size_t> &req_send_buffer_size, std::map<std::string, size_t> &req_receive_buffer_size) const override
+    void compute_request_buffer_sizes(std::map<std::string, size_t>& req_send_buffer_size,
+        std::map<std::string, size_t>& req_receive_buffer_size) const override
     {
-        std::map<std::string, std::map<std::string, size_t>> request_buffer_sizes =
-            {{"send", {{"double", 0}, {"uint8", 0}, {"uint16", 0}}}, {"receive", {{"double", 0}, {"uint8", 0}, {"uint16", 0}}}};
+        std::map<std::string, std::map<std::string, size_t>> request_buffer_sizes = {
+            {"send", {{"double", 0}, {"uint8", 0}, {"uint16", 0}}},
+            {"receive", {{"double", 0}, {"uint8", 0}, {"uint16", 0}}}};
 
-        for (std::pair<const std::string, std::map<std::string, size_t>> &request_buffer_size : request_buffer_sizes)
+        for (std::pair<const std::string, std::map<std::string, size_t>>& request_buffer_size : request_buffer_sizes)
         {
             if (!request_meta_data_dict.contains(request_buffer_size.first.c_str()))
             {
                 continue;
             }
 
-            for (const auto &send_objects : request_meta_data_dict[request_buffer_size.first.c_str()].cast<pybind11::dict>())
+            for (const auto& send_objects :
+                request_meta_data_dict[request_buffer_size.first.c_str()].cast<pybind11::dict>())
             {
                 const std::string object_name = send_objects.first.cast<std::string>();
-                if (object_name.compare("") == 0 || (int)request_buffer_size.second["double"] == -1 || (int)request_buffer_size.second["uint8"] == -1 || (int)request_buffer_size.second["uint16"] == -1)
+                if (object_name.compare("") == 0 || (int)request_buffer_size.second["double"] == -1 ||
+                    (int)request_buffer_size.second["uint8"] == -1 || (int)request_buffer_size.second["uint16"] == -1)
                 {
                     request_buffer_size.second["double"] = -1;
                     request_buffer_size.second["uint8"] = -1;
@@ -331,7 +438,8 @@ private:
                     }
                     if (attribute_map_uint16_t.find(attributes[i].cast<std::string>()) != attribute_map_uint16_t.end())
                     {
-                        request_buffer_size.second["uint16"] += attribute_map_uint16_t[attributes[i].cast<std::string>()];
+                        request_buffer_size.second["uint16"] +=
+                            attribute_map_uint16_t[attributes[i].cast<std::string>()];
                     }
                 }
             }
@@ -341,41 +449,92 @@ private:
         req_receive_buffer_size = request_buffer_sizes["receive"];
     }
 
-    void compute_response_buffer_sizes(std::map<std::string, size_t> &res_send_buffer_size, std::map<std::string, size_t> &res_receive_buffer_size) const override
+    void compute_response_buffer_sizes(std::map<std::string, size_t>& res_send_buffer_size,
+        std::map<std::string, size_t>& res_receive_buffer_size) const override
     {
-        std::map<std::string, std::map<std::string, size_t>> response_buffer_sizes =
-            {{"send", {{"double", 0}, {"uint8", 0}, {"uint16", 0}}}, {"receive", {{"double", 0}, {"uint8", 0}, {"uint16", 0}}}};
+        res_send_buffer_size = {{"double", 0}, {"uint8", 0}, {"uint16", 0}};
+        res_receive_buffer_size = {{"double", 0}, {"uint8", 0}, {"uint16", 0}};
 
-        for (std::pair<const std::string, std::map<std::string, size_t>> &response_buffer_size : response_buffer_sizes)
-        {
-            if (!response_meta_data_dict.contains(response_buffer_size.first.c_str()))
+        auto is_size_key = [](const std::string& k) { return (k == "double" || k == "uint8" || k == "uint16"); };
+
+        auto read_size_fields_if_present = [&](pybind11::dict d, std::map<std::string, size_t>& out) -> bool {
+            bool has_any = false;
+
+            for (auto key : {"double", "uint8", "uint16"})
             {
-                continue;
+                if (!d.contains(key))
+                    continue;
+
+                pybind11::handle v = d[key];
+                if (pybind11::isinstance<pybind11::int_>(v))
+                {
+                    long long n = v.cast<long long>();
+                    out[key] = (n < 0) ? 0 : (size_t)n;
+                    has_any = true;
+                }
+                else if (pybind11::isinstance<pybind11::float_>(v))
+                {
+                    double n = v.cast<double>();
+                    out[key] = (n < 0.0) ? 0 : (size_t)n;
+                    has_any = true;
+                }
             }
 
-            for (const auto &receive_objects : response_meta_data_dict[response_buffer_size.first.c_str()].cast<pybind11::dict>())
+            return has_any;
+        };
+
+        auto compute_from_object_entries = [&](pybind11::dict side_dict, std::map<std::string, size_t>& out) {
+            for (const auto& obj_pair : side_dict)
             {
-                const pybind11::dict attributes = receive_objects.second.cast<pybind11::dict>();
-                for (const auto &attribute : attributes)
+                std::string object_name = pybind11::str(obj_pair.first).cast<std::string>();
+                if (is_size_key(object_name))
+                    continue;
+
+                if (!pybind11::isinstance<pybind11::dict>(obj_pair.second))
+                    continue;
+                pybind11::dict attrs = obj_pair.second.cast<pybind11::dict>();
+
+                for (const auto& attr_pair : attrs)
                 {
-                    if (attribute_map_double.find(attribute.first.cast<std::string>()) != attribute_map_double.end())
-                    {
-                        response_buffer_size.second["double"] += attribute.second.cast<pybind11::list>().size();
-                    }
-                    if (attribute_map_uint8_t.find(attribute.first.cast<std::string>()) != attribute_map_uint8_t.end())
-                    {
-                        response_buffer_size.second["uint8"] += attribute.second.cast<pybind11::list>().size();
-                    }
-                    if (attribute_map_uint16_t.find(attribute.first.cast<std::string>()) != attribute_map_uint16_t.end())
-                    {
-                        response_buffer_size.second["uint16"] += attribute.second.cast<pybind11::list>().size();
-                    }
+                    std::string attr_name = pybind11::str(attr_pair.first).cast<std::string>();
+                    if (!pybind11::isinstance<pybind11::list>(attr_pair.second))
+                        continue;
+
+                    size_t count = pybind11::len(attr_pair.second.cast<pybind11::list>());
+
+                    if (attribute_map_double.count(attr_name))
+                        out["double"] += count;
+                    if (attribute_map_uint8_t.count(attr_name))
+                        out["uint8"] += count;
+                    if (attribute_map_uint16_t.count(attr_name))
+                        out["uint16"] += count;
                 }
+            }
+        };
+
+        if (response_meta_data_dict.contains("send") &&
+            pybind11::isinstance<pybind11::dict>(response_meta_data_dict["send"]))
+        {
+
+            pybind11::dict send_dict = response_meta_data_dict["send"].cast<pybind11::dict>();
+
+            if (!read_size_fields_if_present(send_dict, res_send_buffer_size))
+            {
+                compute_from_object_entries(send_dict, res_send_buffer_size);
             }
         }
 
-        res_send_buffer_size = response_buffer_sizes["send"];
-        res_receive_buffer_size = response_buffer_sizes["receive"];
+        if (response_meta_data_dict.contains("receive") &&
+            pybind11::isinstance<pybind11::dict>(response_meta_data_dict["receive"]))
+        {
+
+            pybind11::dict recv_dict = response_meta_data_dict["receive"].cast<pybind11::dict>();
+
+            if (!read_size_fields_if_present(recv_dict, res_receive_buffer_size))
+            {
+                compute_from_object_entries(recv_dict, res_receive_buffer_size);
+            }
+        }
     }
 
     void start_connect_to_server_thread() override
