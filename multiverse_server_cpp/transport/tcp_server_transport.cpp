@@ -206,7 +206,7 @@ void TcpServerTransport::recv(void* data, size_t len)
     {
         in_parts_.clear();
         in_next_ = 0;
-        if (!rawtcp::recv_parts(client_fd_, in_parts_))
+        if (!rawtcp::recv_parts(client_fd_, in_parts_, 5000))
         {
             throw std::runtime_error("TcpServerTransport: recv_parts failed");
         }
@@ -230,7 +230,7 @@ std::string TcpServerTransport::recv_text()
     {
         in_parts_.clear();
         in_next_ = 0;
-        if (!rawtcp::recv_parts(client_fd_, in_parts_))
+        if (!rawtcp::recv_parts(client_fd_, in_parts_, 5000))
         {
             throw std::runtime_error("TcpServerTransport: recv_parts failed");
         }
@@ -247,7 +247,7 @@ bool TcpServerTransport::recv_multipart(std::vector<std::string>& parts)
     in_parts_.clear();
     in_next_ = 0;
 
-    if (!rawtcp::recv_parts(client_fd_, in_parts_))
+    if (!rawtcp::recv_parts(client_fd_, in_parts_, 5000))
         return false;
 
     parts = in_parts_;

@@ -158,8 +158,7 @@ void TcpClientTransport::send(const void *data, size_t len, bool more)
         if (!rawtcp::send_parts(sock_, out_parts_))
         {
             out_parts_.clear();
-            throw std::runtime_error(
-                make_socket_error_str("TcpClientTransport: send_parts failed"));
+            mv_log("%s", make_socket_error_str("TcpClientTransport: send_parts failed").c_str());
         }
         out_parts_.clear();
     }
@@ -181,16 +180,16 @@ void TcpClientTransport::recv(void *data, size_t len)
         in_next_ = 0;
         if (!rawtcp::recv_parts(sock_, in_parts_))
         {
-            throw std::runtime_error("TcpClientTransport: recv_parts failed");
+            mv_log("%s", make_socket_error_str("TcpClientTransport: recv_parts failed").c_str());
         }
     }
 
     const std::string &frame = in_parts_[in_next_++];
     if (frame.size() != len)
     {
-        throw std::runtime_error("TcpClientTransport: recv size mismatch (expected " +
+        mv_log("%s", make_socket_error_str("TcpClientTransport: recv size mismatch (expected " +
                                  std::to_string(len) + ", got " +
-                                 std::to_string(frame.size()) + ")");
+                                 std::to_string(frame.size()) + ")").c_str());
     }
     std::memcpy(data, frame.data(), len);
 }
@@ -204,9 +203,9 @@ std::string TcpClientTransport::recv_text()
     {
         in_parts_.clear();
         in_next_ = 0;
-        if (!rawtcp::recv_parts(sock_, in_parts_))
+        if (!rawtcp::recv_parts(sock_, in_parts_, 5000))
         {
-            throw std::runtime_error("TcpClientTransport: recv_parts failed");
+            mv_log("%s", make_socket_error_str("TcpClientTransport: recv_parts failed").c_str());
         }
     }
 
@@ -221,8 +220,10 @@ bool TcpClientTransport::recv_multipart(std::vector<std::string> &parts)
     in_parts_.clear();
     in_next_ = 0;
 
-    if (!rawtcp::recv_parts(sock_, in_parts_))
+    if (!rawtcp::recv_parts(sock_, in_parts_, 5000)) {
+        mv_log("%s", make_socket_error_str("TcpClientTransport: recv_parts failed").c_str());
         return false;
+    }
 
     parts = in_parts_;
     in_parts_.clear();

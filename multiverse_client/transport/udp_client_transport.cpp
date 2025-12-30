@@ -4,6 +4,8 @@
 
 #include <stdexcept>
 #include <cstring>
+#include <chrono>
+#include <thread>
 
 namespace {
 
@@ -81,27 +83,48 @@ void UdpClientTransport::connect(const std::string &endpoint)
         ~AddrInfoGuard() { if (p) ::freeaddrinfo(p); }
     } guard{res};
 
-    for (auto *p = res; p; p = p->ai_next)
+    constexpr size_t kMaxAttempts = 12;
+    constexpr int    kSleepMs     = 200;
+    int last_err = 0;
+
+    for (size_t attempt = 1; attempt <= kMaxAttempts; ++attempt)
     {
-        socket_t cand = ::socket(p->ai_family, p->ai_socktype, p->ai_protocol);
-        if (!is_valid_socket(cand))
-            continue;
-
-        int yes = 1;
-        ::setsockopt(cand, SOL_SOCKET, SO_REUSEADDR,
-                     reinterpret_cast<const char *>(&yes), sizeof(yes));
-
-        if (::connect(cand, p->ai_addr, static_cast<socklen_t>(p->ai_addrlen)) == 0)
+        for (auto *p = res; p; p = p->ai_next)
         {
-            sock_ = cand;
-            return;
+            socket_t cand = ::socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+            if (!is_valid_socket(cand))
+            {
+                last_err = sock_errno_local();
+                continue;
+            }
+
+            int yes = 1;
+            ::setsockopt(cand, SOL_SOCKET, SO_REUSEADDR,
+                         reinterpret_cast<const char *>(&yes), sizeof(yes));
+#ifndef _WIN32
+            ::setsockopt(cand, SOL_SOCKET, SO_REUSEPORT,
+                         reinterpret_cast<const char *>(&yes), sizeof(yes));
+#endif
+
+            if (::connect(cand, p->ai_addr, static_cast<socklen_t>(p->ai_addrlen)) == 0)
+            {
+                sock_ = cand;
+                return;
+            }
+
+            last_err = sock_errno_local();
+            close_socket(cand);
         }
 
-        close_socket(cand);
+        if (attempt < kMaxAttempts)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(kSleepMs));
+        }
     }
 
     throw std::runtime_error(
-        make_socket_error_str("UdpClientTransport: connect failed to " + endpoint));
+        make_socket_error_str("UdpClientTransport: connect failed to " + endpoint +
+                              " (last errno=" + std::to_string(last_err) + ")"));
 }
 
 void UdpClientTransport::disconnect()
@@ -148,7 +171,7 @@ void UdpClientTransport::recv(void *data, size_t len)
     {
         in_parts_.clear();
         in_next_ = 0;
-        if (!rawudp::recv_parts(sock_, in_parts_, -1))
+        if (!rawudp::recv_parts(sock_, in_parts_, 5000))
         {
             throw std::runtime_error("UdpClientTransport: recv_parts failed");
         }
@@ -173,7 +196,7 @@ std::string UdpClientTransport::recv_text()
     {
         in_parts_.clear();
         in_next_ = 0;
-        if (!rawudp::recv_parts(sock_, in_parts_, -1))
+        if (!rawudp::recv_parts(sock_, in_parts_, 5000))
         {
             throw std::runtime_error("UdpClientTransport: recv_parts failed");
         }

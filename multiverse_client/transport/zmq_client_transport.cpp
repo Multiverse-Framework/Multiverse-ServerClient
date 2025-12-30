@@ -6,6 +6,8 @@ extern "C" {
 
 #include <stdexcept>
 #include <cstring>
+#include <chrono>
+#include <thread>
 
 ZmqClientTransport::ZmqClientTransport()
     : ctx_(nullptr),
@@ -25,6 +27,10 @@ ZmqClientTransport::ZmqClientTransport()
     // Set linger to 0 for immediate close without blocking
     int linger = 0;
     zmq_setsockopt(sock_, ZMQ_LINGER, &linger, sizeof(linger));
+
+    // Set receive timeout to 5000ms (consistent with UDP timeout)
+    int rcvtimeo = 5000;
+    zmq_setsockopt(sock_, ZMQ_RCVTIMEO, &rcvtimeo, sizeof(rcvtimeo));
 }
 
 ZmqClientTransport::~ZmqClientTransport()
@@ -50,10 +56,24 @@ void ZmqClientTransport::connect(const std::string &endpoint)
     if (!sock_)
         throw std::runtime_error("ZmqClientTransport: socket not created");
 
-    if (zmq_connect(sock_, endpoint.c_str()) != 0)
+    constexpr size_t kMaxAttempts = 12;
+    constexpr int    kSleepMs     = 200;
+
+    for (size_t attempt = 1; attempt <= kMaxAttempts; ++attempt)
     {
-        throw std::runtime_error("ZmqClientTransport: connect failed");
+        if (zmq_connect(sock_, endpoint.c_str()) == 0)
+        {
+            return;
+        }
+
+        if (attempt < kMaxAttempts)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(kSleepMs));
+        }
     }
+
+    throw std::runtime_error("ZmqClientTransport: connect failed to " + endpoint +
+                             " after " + std::to_string(kMaxAttempts) + " attempts");
 }
 
 void ZmqClientTransport::disconnect()
@@ -76,6 +96,10 @@ void ZmqClientTransport::disconnect()
         // Set linger to 0 for immediate close without blocking
         int linger = 0;
         zmq_setsockopt(sock_, ZMQ_LINGER, &linger, sizeof(linger));
+
+        // Set receive timeout to 5000ms (consistent with UDP timeout)
+        int rcvtimeo = 5000;
+        zmq_setsockopt(sock_, ZMQ_RCVTIMEO, &rcvtimeo, sizeof(rcvtimeo));
     }
 }
 
@@ -105,6 +129,14 @@ void ZmqClientTransport::recv(void *data, size_t len)
     if (rc < 0)
     {
         throw std::runtime_error("ZmqClientTransport: recv failed");
+    }
+
+    // Validate received size matches expected size (consistent with TCP/UDP)
+    if (static_cast<size_t>(rc) != len)
+    {
+        throw std::runtime_error("ZmqClientTransport: recv size mismatch (expected " +
+                                 std::to_string(len) + ", got " +
+                                 std::to_string(rc) + ")");
     }
 }
 
