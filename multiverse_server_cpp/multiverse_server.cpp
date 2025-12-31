@@ -594,9 +594,68 @@ EMultiverseServerState MultiverseServer::receive_data()
         std::vector<std::vector<uint8_t>> payloads;
         if (!recv_message(message_spec_int, payloads))
         {
-            instance_shutdown = true;
-            sockets_need_clean_up[socket_addr] = true;
-            return EMultiverseServerState::ReceiveRequestMetaData;
+            // For TCP, try to accept a new client instead of shutting down
+            if (protocol_ == ServerTransportType::Tcp && !instance_shutdown)
+            {
+                mv_log("[Server] TCP client disconnected on %s, waiting for new client...", socket_addr.c_str());
+                sockets_need_clean_up[socket_addr] = true;
+
+                // Accept new client connection
+                if (transport_->accept())
+                {
+                    mv_log("[Server] New TCP client connected on %s", socket_addr.c_str());
+                    sockets_need_clean_up[socket_addr] = false;
+
+                    // Clean up global simulation state from previous client
+                    if (!world_name.empty() && !simulation_name.empty())
+                    {
+                        mtx.lock();
+                        if (worlds.count(world_name) > 0)
+                        {
+                            auto& world = worlds[world_name];
+                            if (world.simulations.count(simulation_name) > 0)
+                            {
+                                mv_log("[Server] Removing simulation %s from world %s for new client",
+                                       simulation_name.c_str(), world_name.c_str());
+                                world.simulations.erase(simulation_name);
+
+                                // Remove world if no more simulations
+                                if (world.simulations.empty())
+                                {
+                                    mv_log("[Server] Removing empty world %s", world_name.c_str());
+                                    worlds.erase(world_name);
+                                }
+                            }
+                        }
+                        mtx.unlock();
+                    }
+
+                    // Reset state for new client
+                    request_meta_data_json.clear();
+                    response_meta_data_json.clear();
+                    send_objects_json.clear();
+                    receive_objects_json.clear();
+                    world_name.clear();
+                    simulation_name.clear();
+                    request_world_name.clear();
+                    request_simulation_name.clear();
+
+                    return EMultiverseServerState::ReceiveRequestMetaData;
+                }
+                else
+                {
+                    mv_log("[Server] Failed to accept new TCP client on %s, shutting down worker", socket_addr.c_str());
+                    instance_shutdown = true;
+                    sockets_need_clean_up[socket_addr] = true;
+                    return EMultiverseServerState::ReceiveRequestMetaData;
+                }
+            }
+            else
+            {
+                instance_shutdown = true;
+                sockets_need_clean_up[socket_addr] = true;
+                return EMultiverseServerState::ReceiveRequestMetaData;
+            }
         }
 
         if (message_spec_int == 0 && payloads.size() == 0)
@@ -1788,7 +1847,7 @@ void start_multiverse_server(const std::string& server_socket_addr)
 
     std::map<std::string, std::shared_ptr<MultiverseServer>> servers;
     std::map<std::string, std::thread> workers;
-    std::mutex worker_mutex;
+    std::mutex workers_mutex;
 
     while (!ShutdownManager::is_shutdown())
     {
@@ -1810,50 +1869,76 @@ void start_multiverse_server(const std::string& server_socket_addr)
         std::shared_ptr<MultiverseServer> old_server;
 
         {
-            std::lock_guard<std::mutex> lock(worker_mutex);
-
+            std::unique_lock<std::mutex> lock(workers_mutex);
             auto it = workers.find(receive_addr);
             if (it != workers.end())
             {
-                mv_log("[Server-ZMQ] Found existing worker on %s — stopping…", receive_addr.c_str());
-                old_thread = std::move(it->second);
-                old_server = servers[receive_addr];
-
-                workers.erase(it);
-                servers.erase(receive_addr);
+                // Worker exists - check if it's still running
+                if (it->second.joinable())
+                {
+                    // Thread is still alive, keep it running
+                    mv_log("[Server-ZMQ] Worker on %s is still running, keeping it alive", receive_addr.c_str());
+                }
+                else
+                {
+                    // Thread has finished, clean it up
+                    mv_log("[Server-ZMQ] Worker on %s has finished, cleaning up", receive_addr.c_str());
+                    old_thread = std::move(it->second);
+                    old_server = servers[receive_addr];
+                    workers.erase(it);
+                    servers.erase(receive_addr);
+                }
             }
         }
 
         if (old_server)
         {
-            mv_log("[Server-ZMQ] Stopping worker %s", receive_addr.c_str());
             old_server->stop();
-
+            mv_log("[Server-ZMQ] Joining old worker thread on %s", receive_addr.c_str());
             if (old_thread.joinable())
                 old_thread.join();
-
-            mv_log("[Server-ZMQ] Old worker stopped: %s", receive_addr.c_str());
+            mv_log("[Server-ZMQ] Old worker on %s stopped and cleaned up.", receive_addr.c_str());
         }
 
-        auto server = std::make_shared<MultiverseServer>(receive_addr);
-
+        // Only create new worker if one doesn't exist or old one finished
+        bool should_create_worker = false;
         {
-            std::lock_guard<std::mutex> lock(worker_mutex);
+            std::lock_guard<std::mutex> lock(workers_mutex);
+            should_create_worker = (workers.find(receive_addr) == workers.end());
+        }
 
-            servers[receive_addr] = server;
+        if (should_create_worker)
+        {
+            mv_log("[Server-ZMQ] Launching new worker for %s", receive_addr.c_str());
 
-            workers[receive_addr] = std::thread([server, receive_addr]() {
-                try
-                {
-                    mv_log("[Server-ZMQ-Worker] Starting worker on %s", receive_addr.c_str());
-                    server->start();
-                    mv_log("[Server-ZMQ-Worker] Worker %s exited", receive_addr.c_str());
-                }
-                catch (const std::exception& e)
-                {
-                    mv_log("[Server-ZMQ-Worker] Exception on %s: %s", receive_addr.c_str(), e.what());
-                }
-            });
+            {
+                std::lock_guard<std::mutex> lock(workers_mutex);
+                workers[receive_addr] = std::thread([&servers, &workers_mutex, receive_addr]() {
+                    try
+                    {
+                        mv_log("[Server-ZMQ-Worker] Starting worker on %s", receive_addr.c_str());
+                        // Create the server inside the thread to avoid blocking dispatcher
+                        auto server = std::make_shared<MultiverseServer>(receive_addr);
+
+                        // Store the server instance so it can be stopped later
+                        {
+                            std::lock_guard<std::mutex> lock(workers_mutex);
+                            servers[receive_addr] = server;
+                        }
+
+                        server->start();
+                        mv_log("[Server-ZMQ-Worker] Worker %s exited cleanly.", receive_addr.c_str());
+                    }
+                    catch (const std::exception& e)
+                    {
+                        mv_log("[Server-ZMQ-Worker] Exception on %s: %s", receive_addr.c_str(), e.what());
+                    }
+                });
+            }
+        }
+        else
+        {
+            mv_log("[Server-ZMQ] Worker for %s already exists and is running", receive_addr.c_str());
         }
 
         zmq::message_t response(receive_addr.size());
@@ -1861,22 +1946,28 @@ void start_multiverse_server(const std::string& server_socket_addr)
         server_socket.send(response, zmq::send_flags::none);
     }
 
-    mv_log("[Server-ZMQ] Shutdown requested. Stopping workers...");
+    mv_log("[Server-ZMQ] Shutdown requested — stopping all workers...");
 
     {
-        std::lock_guard<std::mutex> lock(worker_mutex);
+        std::unique_lock<std::mutex> lock(workers_mutex);
         for (auto& [addr, srv] : servers)
         {
-            mv_log("[Server-ZMQ] Stopping worker server: %s", addr.c_str());
-            srv->stop();
+            if (srv)
+            {
+                mv_log("[Server-ZMQ] Stopping worker server: %s", addr.c_str());
+                srv->stop();
+            }
         }
-    }
+        lock.unlock();
 
-    for (auto& [addr, t] : workers)
-    {
-        mv_log("[Server-ZMQ] Joining thread: %s", addr.c_str());
-        if (t.joinable())
-            t.join();
+        for (auto& [addr, t] : workers)
+        {
+            if (t.joinable())
+            {
+                mv_log("[Server-ZMQ] Joining worker thread: %s", addr.c_str());
+                t.join();
+            }
+        }
     }
 
     server_socket.set(zmq::sockopt::linger, 0);
@@ -1938,7 +2029,9 @@ void start_multiverse_server_tcp(const std::string& host, const std::string& por
         return;
     }
 
+    std::map<std::string, std::shared_ptr<MultiverseServer>> servers;
     std::map<std::string, std::thread> workers;
+    std::mutex workers_mutex;
 
     while (!ShutdownManager::is_shutdown())
     {
@@ -2030,30 +2123,82 @@ void start_multiverse_server_tcp(const std::string& host, const std::string& por
 
         uint16_t worker_port = requested_port;
         std::string worker_addr = host + ":" + std::to_string(worker_port);
-        mv_log("[Server-TCP] Launching worker for %s", request.c_str());
 
-        if (workers.count(worker_addr))
+        std::thread old_thread;
+        std::shared_ptr<MultiverseServer> old_server;
+
         {
-            mv_log("[Server-TCP] Cleaning up old worker on %s", worker_addr.c_str());
-            if (workers[worker_addr].joinable())
+            std::unique_lock<std::mutex> lock(workers_mutex);
+            auto it = workers.find(worker_addr);
+            if (it != workers.end())
             {
-                workers[worker_addr].join();
+                // Worker exists - check if it's still running
+                if (it->second.joinable())
+                {
+                    // Thread is still alive, keep it running
+                    mv_log("[Server-TCP] Worker on %s is still running, keeping it alive", worker_addr.c_str());
+                }
+                else
+                {
+                    // Thread has finished, clean it up
+                    mv_log("[Server-TCP] Worker on %s has finished, cleaning up", worker_addr.c_str());
+                    old_thread = std::move(it->second);
+                    old_server = servers[worker_addr];
+                    workers.erase(it);
+                    servers.erase(worker_addr);
+                }
             }
-            workers.erase(worker_addr);
         }
 
-        workers[worker_addr] = std::thread([worker_addr, host]() {
-            try
+        if (old_server)
+        {
+            old_server->stop();
+            mv_log("[Server-TCP] Joining old worker thread on %s", worker_addr.c_str());
+            if (old_thread.joinable())
+                old_thread.join();
+            mv_log("[Server-TCP] Old worker on %s stopped and cleaned up.", worker_addr.c_str());
+        }
+
+        // Only create new worker if one doesn't exist or old one finished
+        bool should_create_worker = false;
+        {
+            std::lock_guard<std::mutex> lock(workers_mutex);
+            should_create_worker = (workers.find(worker_addr) == workers.end());
+        }
+
+        if (should_create_worker)
+        {
+            mv_log("[Server-TCP] Launching new worker for %s", worker_addr.c_str());
+
             {
-                mv_log("[Server-TCP-Worker] Starting at thread %s", worker_addr.c_str());
-                MultiverseServer server(host, worker_addr.substr(worker_addr.find(':') + 1), ServerTransportType::Tcp);
-                server.start();
+                std::lock_guard<std::mutex> lock(workers_mutex);
+                workers[worker_addr] = std::thread([&servers, &workers_mutex, worker_addr, host, worker_port]() {
+                    try
+                    {
+                        mv_log("[Server-TCP-Worker] Starting worker on %s", worker_addr.c_str());
+                        // Create the server inside the thread to avoid blocking dispatcher
+                        auto server = std::make_shared<MultiverseServer>(host, std::to_string(worker_port), ServerTransportType::Tcp);
+
+                        // Store the server instance so it can be stopped later
+                        {
+                            std::lock_guard<std::mutex> lock(workers_mutex);
+                            servers[worker_addr] = server;
+                        }
+
+                        server->start();
+                        mv_log("[Server-TCP-Worker] Worker %s exited cleanly.", worker_addr.c_str());
+                    }
+                    catch (const std::exception& e)
+                    {
+                        mv_log("[Server-TCP-Worker] Exception on %s: %s", worker_addr.c_str(), e.what());
+                    }
+                });
             }
-            catch (const std::exception& e)
-            {
-                mv_log("[Server-TCP-Worker] Exception on %s: %s", worker_addr.c_str(), e.what());
-            }
-        });
+        }
+        else
+        {
+            mv_log("[Server-TCP] Worker for %s already exists and is running", worker_addr.c_str());
+        }
 
         std::vector<std::string> resp = {worker_addr};
         if (!rawtcp::send_parts(client_fd, resp))
@@ -2065,16 +2210,35 @@ void start_multiverse_server_tcp(const std::string& host, const std::string& por
         mv_log("[Server-TCP] Connection closed. %s:%d", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
     }
 
-    mv_log("[Server-TCP] Dispatcher shutting down, waiting for workers...");
-    for (auto& [addr, t] : workers)
-        if (t.joinable())
-            t.join();
+    mv_log("[Server-TCP] Shutdown requested — stopping all workers...");
+
+    {
+        std::unique_lock<std::mutex> lock(workers_mutex);
+        for (auto& [addr, srv] : servers)
+        {
+            if (srv)
+            {
+                mv_log("[Server-TCP] Stopping worker server: %s", addr.c_str());
+                srv->stop();
+            }
+        }
+        lock.unlock();
+
+        for (auto& [addr, t] : workers)
+        {
+            if (t.joinable())
+            {
+                mv_log("[Server-TCP] Joining worker thread: %s", addr.c_str());
+                t.join();
+            }
+        }
+    }
 
     CLOSESOCK(listen_fd);
 #ifdef _WIN32
     WSACleanup();
 #endif
-    mv_log("[Server-TCP] Dispatcher stopped.");
+    mv_log("[Server-TCP] Dispatcher stopped cleanly.");
 }
 #endif
 
