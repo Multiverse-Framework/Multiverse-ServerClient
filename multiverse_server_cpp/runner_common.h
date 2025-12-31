@@ -6,7 +6,8 @@
 #include <windows.h>
 #endif
 
-inline void sleep_ms(int ms) {
+inline void sleep_ms(int ms)
+{
 #ifdef _WIN32
     Sleep(ms);
 #else

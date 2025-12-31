@@ -28,9 +28,11 @@ class MultiverseClientJson : public MultiverseClient
 protected:
     bool compute_request_and_response_meta_data() override final;
 
-    void compute_request_buffer_sizes(std::map<std::string, size_t> &send_buffer_size, std::map<std::string, size_t> &receive_buffer_size) const override final;
+    void compute_request_buffer_sizes(std::map<std::string, size_t>& send_buffer_size,
+        std::map<std::string, size_t>& receive_buffer_size) const override final;
 
-    void compute_response_buffer_sizes(std::map<std::string, size_t> &send_buffer_size, std::map<std::string, size_t> &receive_buffer_size) const override final;
+    void compute_response_buffer_sizes(std::map<std::string, size_t>& send_buffer_size,
+        std::map<std::string, size_t>& receive_buffer_size) const override final;
 
 protected:
     Json::Value request_meta_data_json;

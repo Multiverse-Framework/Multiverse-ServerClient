@@ -26,52 +26,25 @@
 #include <pybind11/stl.h>
 #include <pybind11/functional.h>
 
-std::map<std::string, size_t> attribute_map_double = {
-    {"", 0},
-    {"time", 1},
-    {"scalar", 1},
-    {"position", 3},
-    {"quaternion", 4},
-    {"linear_velocity", 3},
-    {"angular_velocity", 3},
-    {"linear_acceleration", 3},
-    {"angular_acceleration", 3},
-    {"odometric_velocity", 6},
-    {"joint_linear_position", 1},
-    {"joint_angular_position", 1},
-    {"joint_linear_velocity", 1},
-    {"joint_angular_velocity", 1},
-    {"joint_linear_acceleration", 1},
-    {"joint_angular_acceleration", 1},
-    {"joint_force", 1},
-    {"joint_torque", 1},
-    {"cmd_joint_linear_position", 1},
-    {"cmd_joint_angular_position", 1},
-    {"cmd_joint_linear_velocity", 1},
-    {"cmd_joint_angular_velocity", 1},
-    {"cmd_joint_force", 1},
-    {"cmd_joint_torque", 1},
-    {"joint_position", 3},
-    {"joint_quaternion", 4},
-    {"force", 3},
+std::map<std::string, size_t> attribute_map_double = {{"", 0}, {"time", 1}, {"scalar", 1}, {"position", 3},
+    {"quaternion", 4}, {"linear_velocity", 3}, {"angular_velocity", 3}, {"linear_acceleration", 3},
+    {"angular_acceleration", 3}, {"odometric_velocity", 6}, {"joint_linear_position", 1}, {"joint_angular_position", 1},
+    {"joint_linear_velocity", 1}, {"joint_angular_velocity", 1}, {"joint_linear_acceleration", 1},
+    {"joint_angular_acceleration", 1}, {"joint_force", 1}, {"joint_torque", 1}, {"cmd_joint_linear_position", 1},
+    {"cmd_joint_angular_position", 1}, {"cmd_joint_linear_velocity", 1}, {"cmd_joint_angular_velocity", 1},
+    {"cmd_joint_force", 1}, {"cmd_joint_torque", 1}, {"joint_position", 3}, {"joint_quaternion", 4}, {"force", 3},
     {"torque", 3}};
 
-std::map<std::string, size_t> attribute_map_uint8_t = {
-    {"rgb_3840_2160", 3840 * 2160 * 3},
-    {"rgb_1280_1024", 1280 * 1024 * 3},
-    {"rgb_640_480", 640 * 480 * 3},
-    {"rgb_128_128", 128 * 128 * 3}};
+std::map<std::string, size_t> attribute_map_uint8_t = {{"rgb_3840_2160", 3840 * 2160 * 3},
+    {"rgb_1280_1024", 1280 * 1024 * 3}, {"rgb_640_480", 640 * 480 * 3}, {"rgb_128_128", 128 * 128 * 3}};
 
-std::map<std::string, size_t> attribute_map_uint16_t = {
-    {"depth_3840_2160", 3840 * 2160},
-    {"depth_1280_1024", 1280 * 1024},
-    {"depth_640_480", 640 * 480},
-    {"depth_128_128", 128 * 128}};
+std::map<std::string, size_t> attribute_map_uint16_t = {{"depth_3840_2160", 3840 * 2160},
+    {"depth_1280_1024", 1280 * 1024}, {"depth_640_480", 640 * 480}, {"depth_128_128", 128 * 128}};
 
 class MultiverseClientPybind final : public MultiverseClient
 {
 public:
-    MultiverseClientPybind(const std::string &transport = "Zmq")
+    MultiverseClientPybind(const std::string& transport = "Zmq")
     {
         ClientTransportType transport_type;
         if (transport == "Tcp")
@@ -93,20 +66,19 @@ public:
         set_transport(transport_type);
     }
 
-    ~MultiverseClientPybind()
-    {
-    }
+    ~MultiverseClientPybind() {}
 
     inline double get_world_time() const
     {
         return *world_time;
     }
 
-    inline void set_request_meta_data(const pybind11::dict &in_request_meta_data_dict)
+    inline void set_request_meta_data(const pybind11::dict& in_request_meta_data_dict)
     {
         request_meta_data_dict = in_request_meta_data_dict;
-        std::map<std::string, std::map<std::string, size_t>> request_buffer_sizes =
-            {{"send", {{"double", 0}, {"uint8", 0}, {"uint16", 0}}}, {"receive", {{"double", 0}, {"uint8", 0}, {"uint16", 0}}}};
+        std::map<std::string, std::map<std::string, size_t>> request_buffer_sizes = {
+            {"send", {{"double", 0}, {"uint8", 0}, {"uint16", 0}}},
+            {"receive", {{"double", 0}, {"uint8", 0}, {"uint16", 0}}}};
         compute_request_buffer_sizes(request_buffer_sizes["send"], request_buffer_sizes["receive"]);
 
         send_buffer.buffer_double.size = request_buffer_sizes["send"]["double"];
@@ -122,11 +94,15 @@ public:
         return response_meta_data_dict;
     }
 
-    inline void set_send_data(const pybind11::list &in_send_data)
+    inline void set_send_data(const pybind11::list& in_send_data)
     {
-        if (in_send_data.size() != 1 + send_buffer.buffer_double.size + send_buffer.buffer_uint8_t.size + send_buffer.buffer_uint16_t.size)
+        if (in_send_data.size() !=
+            1 + send_buffer.buffer_double.size + send_buffer.buffer_uint8_t.size + send_buffer.buffer_uint16_t.size)
         {
-            printf("[Client %s] The size of in_send_data (%zu) does not match with send_buffer_size (%zu).\n", client_port.c_str(), in_send_data.size(), 1 + send_buffer.buffer_double.size + send_buffer.buffer_uint8_t.size + send_buffer.buffer_uint16_t.size);
+            printf("[Client %s] The size of in_send_data (%zu) does not match with send_buffer_size (%zu).\n",
+                client_port.c_str(), in_send_data.size(),
+                1 + send_buffer.buffer_double.size + send_buffer.buffer_uint8_t.size +
+                    send_buffer.buffer_uint16_t.size);
         }
         else
         {
@@ -137,17 +113,17 @@ public:
             try
             {
                 world_time = new double(in_send_data[0].cast<double>());
-                std::transform(in_send_data.begin() + 1, in_send_data.begin() + 1 + send_buffer.buffer_double.size, send_data_double.begin(),
-                               [](const pybind11::handle &item)
-                               { return item.cast<double>(); });
-                std::transform(in_send_data.begin() + 1 + send_buffer.buffer_double.size, in_send_data.begin() + 1 + send_buffer.buffer_double.size + send_buffer.buffer_uint8_t.size, send_data_uint8_t.begin(),
-                               [](const pybind11::handle &item)
-                               { return item.cast<uint8_t>(); });
-                std::transform(in_send_data.begin() + 1 + send_buffer.buffer_double.size + send_buffer.buffer_uint8_t.size, in_send_data.end(), send_data_uint16_t.begin(),
-                               [](const pybind11::handle &item)
-                               { return item.cast<uint16_t>(); });
+                std::transform(in_send_data.begin() + 1, in_send_data.begin() + 1 + send_buffer.buffer_double.size,
+                    send_data_double.begin(), [](const pybind11::handle& item) { return item.cast<double>(); });
+                std::transform(in_send_data.begin() + 1 + send_buffer.buffer_double.size,
+                    in_send_data.begin() + 1 + send_buffer.buffer_double.size + send_buffer.buffer_uint8_t.size,
+                    send_data_uint8_t.begin(), [](const pybind11::handle& item) { return item.cast<uint8_t>(); });
+                std::transform(
+                    in_send_data.begin() + 1 + send_buffer.buffer_double.size + send_buffer.buffer_uint8_t.size,
+                    in_send_data.end(), send_data_uint16_t.begin(),
+                    [](const pybind11::handle& item) { return item.cast<uint16_t>(); });
             }
-            catch (const std::exception &e)
+            catch (const std::exception& e)
             {
                 printf("[Client %s] Error in set_send_data: %s\n", client_port.c_str(), e.what());
                 throw std::runtime_error(e.what());
@@ -157,45 +133,47 @@ public:
 
     inline pybind11::list get_receive_data() const
     {
-        return pybind11::cast(std::vector<double>({*world_time})) + pybind11::cast(receive_data_double) + pybind11::cast(receive_data_uint8_t) + pybind11::cast(receive_data_uint16_t);
+        return pybind11::cast(std::vector<double>({*world_time})) + pybind11::cast(receive_data_double) +
+               pybind11::cast(receive_data_uint8_t) + pybind11::cast(receive_data_uint16_t);
     }
 
-    inline void set_api_callbacks(const std::map<std::string, std::function<void (pybind11::list)>> &in_api_callbacks)
+    inline void set_api_callbacks(const std::map<std::string, std::function<void(pybind11::list)>>& in_api_callbacks)
     {
         api_callbacks = in_api_callbacks;
     }
 
-    inline void set_api_callbacks_response(const std::map<std::string, std::function<pybind11::list(pybind11::list)>> &in_api_callbacks_response)
+    inline void set_api_callbacks_response(
+        const std::map<std::string, std::function<pybind11::list(pybind11::list)>>& in_api_callbacks_response)
     {
         api_callbacks_response = in_api_callbacks_response;
     }
 
-    inline void set_bind_request_meta_data_callback(const std::function<void ()> &in_bind_request_meta_data_callback)
+    inline void set_bind_request_meta_data_callback(const std::function<void()>& in_bind_request_meta_data_callback)
     {
         bind_request_meta_data_callback = in_bind_request_meta_data_callback;
     }
 
-    inline void set_bind_response_meta_data_callback(const std::function<void ()> &in_bind_response_meta_data_callback)
+    inline void set_bind_response_meta_data_callback(const std::function<void()>& in_bind_response_meta_data_callback)
     {
         bind_response_meta_data_callback = in_bind_response_meta_data_callback;
     }
 
-    inline void set_bind_send_data_callback(const std::function<void ()> &in_bind_send_data_callback)
+    inline void set_bind_send_data_callback(const std::function<void()>& in_bind_send_data_callback)
     {
         bind_send_data_callback = in_bind_send_data_callback;
     }
 
-    inline void set_bind_receive_data_callback(const std::function<void ()> &in_bind_receive_data_callback)
+    inline void set_bind_receive_data_callback(const std::function<void()>& in_bind_receive_data_callback)
     {
         bind_receive_data_callback = in_bind_receive_data_callback;
     }
 
-    inline void set_init_objects_callback(const std::function<void ()> &in_init_objects_callback)
+    inline void set_init_objects_callback(const std::function<void()>& in_init_objects_callback)
     {
         init_objects_callback = in_init_objects_callback;
     }
 
-    inline void set_reset_callback(const std::function<void ()> &in_reset_callback)
+    inline void set_reset_callback(const std::function<void()>& in_reset_callback)
     {
         reset_callback = in_reset_callback;
     }
@@ -217,19 +195,21 @@ private:
 
     std::vector<uint16_t> receive_data_uint16_t;
 
-    std::function<void ()> bind_request_meta_data_callback = []() {};
+    std::function<void()> bind_request_meta_data_callback = []() {};
 
-    std::function<void ()> bind_response_meta_data_callback = []() {};
+    std::function<void()> bind_response_meta_data_callback = []() {};
 
-    std::function<void ()> bind_send_data_callback = []() {};
+    std::function<void()> bind_send_data_callback = []() {};
 
-    std::function<void ()> bind_receive_data_callback = []() {};
+    std::function<void()> bind_receive_data_callback = []() {};
 
-    std::function<void ()> init_objects_callback = []() {};
+    std::function<void()> init_objects_callback = []() {};
 
-    std::function<void ()> reset_callback = [this]() { printf("[Client %s] Resetting the client (will be implemented).\n", client_port.c_str()); };
+    std::function<void()> reset_callback = [this]() {
+        printf("[Client %s] Resetting the client (will be implemented).\n", client_port.c_str());
+    };
 
-    std::map<std::string, std::function<void (pybind11::list)>> api_callbacks;
+    std::map<std::string, std::function<void(pybind11::list)>> api_callbacks;
 
     std::map<std::string, std::function<pybind11::list(pybind11::list)>> api_callbacks_response;
 
@@ -542,18 +522,14 @@ private:
         MultiverseClientPybind::connect_to_server();
     }
 
-    void wait_for_connect_to_server_thread_finish() override
-    {
-    }
+    void wait_for_connect_to_server_thread_finish() override {}
 
     void start_meta_data_thread() override
     {
         MultiverseClientPybind::send_and_receive_meta_data();
     }
 
-    void wait_for_meta_data_thread_finish() override
-    {
-    }
+    void wait_for_meta_data_thread_finish() override {}
 
     bool init_objects(bool from_request_meta_data = false) override
     {
@@ -618,14 +594,17 @@ private:
                 if (api_callbacks_response.find(api_callback_name) != api_callbacks_response.end())
                 {
                     const pybind11::list api_callback_arguments = api_callback_pair.second.cast<pybind11::list>();
-                    api_callback_dict_request[api_callback_name.c_str()] = api_callbacks_response[api_callback_name.c_str()](api_callback_arguments);
+                    api_callback_dict_request[api_callback_name.c_str()] =
+                        api_callbacks_response[api_callback_name.c_str()](api_callback_arguments);
                 }
                 else
                 {
                     api_callback_dict_request[api_callback_name.c_str()] = pybind11::list();
-                    api_callback_dict_request[api_callback_name.c_str()].cast<pybind11::list>().append("not implemented");
+                    api_callback_dict_request[api_callback_name.c_str()].cast<pybind11::list>().append(
+                        "not implemented");
                 }
-                request_meta_data_dict["api_callbacks_response"].cast<pybind11::list>().append(api_callback_dict_request);
+                request_meta_data_dict["api_callbacks_response"].cast<pybind11::list>().append(
+                    api_callback_dict_request);
             }
         }
     }
@@ -675,16 +654,13 @@ private:
     void bind_send_data() override
     {
         bind_send_data_callback();
-        if (send_data_double.size() != send_buffer.buffer_double.size || send_data_uint8_t.size() != send_buffer.buffer_uint8_t.size)
+        if (send_data_double.size() != send_buffer.buffer_double.size ||
+            send_data_uint8_t.size() != send_buffer.buffer_uint8_t.size)
         {
-            printf("[Client %s] The size of in_send_data [%zu - %zu - %zu] does not match with send_buffer_size [%zu - %zu - %zu].\n",
-                   client_port.c_str(),
-                   send_data_double.size(),
-                   send_data_uint8_t.size(),
-                   send_data_uint16_t.size(),
-                   send_buffer.buffer_double.size,
-                   send_buffer.buffer_uint8_t.size,
-                   send_buffer.buffer_uint16_t.size);
+            printf("[Client %s] The size of in_send_data [%zu - %zu - %zu] does not match with send_buffer_size [%zu - "
+                   "%zu - %zu].\n",
+                client_port.c_str(), send_data_double.size(), send_data_uint8_t.size(), send_data_uint16_t.size(),
+                send_buffer.buffer_double.size, send_buffer.buffer_uint8_t.size, send_buffer.buffer_uint16_t.size);
             return;
         }
 
@@ -699,20 +675,20 @@ private:
             receive_data_uint8_t.size() != receive_buffer.buffer_uint8_t.size ||
             receive_data_uint16_t.size() != receive_buffer.buffer_uint16_t.size)
         {
-            printf("[Client %s] The size of receive_data [%zu - %zu - %zu] does not match with receive_buffer_size [%zu - %zu - %zu].\n",
-                   client_port.c_str(),
-                   receive_data_double.size(),
-                   receive_data_uint8_t.size(),
-                   receive_data_uint16_t.size(),
-                   receive_buffer.buffer_double.size,
-                   receive_buffer.buffer_uint8_t.size,
-                   receive_buffer.buffer_uint16_t.size);
+            printf("[Client %s] The size of receive_data [%zu - %zu - %zu] does not match with receive_buffer_size "
+                   "[%zu - %zu - %zu].\n",
+                client_port.c_str(), receive_data_double.size(), receive_data_uint8_t.size(),
+                receive_data_uint16_t.size(), receive_buffer.buffer_double.size, receive_buffer.buffer_uint8_t.size,
+                receive_buffer.buffer_uint16_t.size);
             return;
         }
 
-        std::copy(receive_buffer.buffer_double.data, receive_buffer.buffer_double.data + receive_buffer.buffer_double.size, receive_data_double.begin());
-        std::copy(receive_buffer.buffer_uint8_t.data, receive_buffer.buffer_uint8_t.data + receive_buffer.buffer_uint8_t.size, receive_data_uint8_t.begin());
-        std::copy(receive_buffer.buffer_uint16_t.data, receive_buffer.buffer_uint16_t.data + receive_buffer.buffer_uint16_t.size, receive_data_uint16_t.begin());
+        std::copy(receive_buffer.buffer_double.data,
+            receive_buffer.buffer_double.data + receive_buffer.buffer_double.size, receive_data_double.begin());
+        std::copy(receive_buffer.buffer_uint8_t.data,
+            receive_buffer.buffer_uint8_t.data + receive_buffer.buffer_uint8_t.size, receive_data_uint8_t.begin());
+        std::copy(receive_buffer.buffer_uint16_t.data,
+            receive_buffer.buffer_uint16_t.data + receive_buffer.buffer_uint16_t.size, receive_data_uint16_t.begin());
         bind_receive_data_callback();
     }
 };
@@ -722,19 +698,24 @@ PYBIND11_MODULE(multiverse_client_pybind, handle)
     handle.doc() = "";
 
     pybind11::class_<MultiverseClient>(handle, "MultiverseClient")
-        .def("connect", static_cast<void (MultiverseClient::*)(const std::string &, const std::string &, const std::string &)>(&MultiverseClient::connect))
+        .def("connect",
+            static_cast<void (MultiverseClient::*)(const std::string&, const std::string&, const std::string&)>(
+                &MultiverseClient::connect))
         .def("start", &MultiverseClient::start)
         .def("communicate", &MultiverseClient::communicate)
-        .def("disconnect", [](MultiverseClient &self) {
-            // Release GIL to prevent hanging during blocking ZMQ operations
-            pybind11::gil_scoped_release release;
-            self.disconnect();
-        }, "Disconnect from server")
+        .def(
+            "disconnect",
+            [](MultiverseClient& self) {
+                // Release GIL to prevent hanging during blocking ZMQ operations
+                pybind11::gil_scoped_release release;
+                self.disconnect();
+            },
+            "Disconnect from server")
         .def("get_time_now", &MultiverseClient::get_time_now);
 
     pybind11::class_<MultiverseClientPybind, MultiverseClient>(handle, "MultiverseClientPybind")
         .def(pybind11::init<>())
-        .def(pybind11::init<const std::string &>(), pybind11::arg("transport") = "Zmq")
+        .def(pybind11::init<const std::string&>(), pybind11::arg("transport") = "Zmq")
         .def("get_world_time", &MultiverseClientPybind::get_world_time)
         .def("set_request_meta_data", &MultiverseClientPybind::set_request_meta_data)
         .def("get_response_meta_data", &MultiverseClientPybind::get_response_meta_data)

@@ -10,7 +10,10 @@ public:
     ZmqClientTransport();
     ~ZmqClientTransport();
 
-    ClientTransportType type() const override { return ClientTransportType::Zmq; }
+    ClientTransportType type() const override
+    {
+        return ClientTransportType::Zmq;
+    }
 
     void connect(const std::string& endpoint) override;
     void disconnect() override;

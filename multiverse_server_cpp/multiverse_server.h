@@ -95,12 +95,12 @@ enum class EMultiverseServerState : unsigned char
  *
  * @tparam T The type of the data.
  */
-template <class T>
+template<class T>
 struct TypedBuffer
 {
-    T *data;
+    T* data;
     size_t size = 0;
-    std::vector<std::pair<T *, T>> data_vec;
+    std::vector<std::pair<T*, T>> data_vec;
 };
 
 /**
@@ -136,8 +136,9 @@ public:
     explicit MultiverseServer(const std::string& zmq_endpoint);
     // Raw TCP data-socket constructor: bind(host, port) and accept() a single client
     MultiverseServer(const std::string& host, const std::string& port, ServerTransportType t);
-    
+
     ~MultiverseServer();
+
 public:
     /**
      * @brief Start the server, this function will run indefinitely until the
@@ -147,7 +148,11 @@ public:
     void start();
     void stop();
     // Expose protocol selection
-    ServerTransportType transport() const { return protocol_; }
+    ServerTransportType transport() const
+    {
+        return protocol_;
+    }
+
 private:
     /**
      * @brief Receive the request meta data or the data from the client,
@@ -262,6 +267,7 @@ private:
 
     // Send a message composed as message_spec + payload(s)
     bool send_message(const void* data, size_t len, bool more);
+
 private:
     // Common
     ServerTransportType protocol_ = ServerTransportType::Zmq;
@@ -387,11 +393,11 @@ private:
  *
  * @param server_socket_addr The server socket address.
  */
-void start_multiverse_server(const std::string &server_socket_addr);
+void start_multiverse_server(const std::string& server_socket_addr);
 
-void start_multiverse_server_tcp(const std::string &host, const std::string &port);
+void start_multiverse_server_tcp(const std::string& host, const std::string& port);
 
-void start_multiverse_server_udp(const std::string &host, const std::string &port);
+void start_multiverse_server_udp(const std::string& host, const std::string& port);
 
 /**
  * @brief The map that contains the sockets that need to be cleaned up.

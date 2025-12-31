@@ -6,22 +6,28 @@
 #include "transport/client_transport.hpp"
 
 template<class T>
-struct TypedBuffer { T* data=nullptr; size_t size=0; };
+struct TypedBuffer
+{
+    T* data = nullptr;
+    size_t size = 0;
+};
 
-struct Buffer {
-    TypedBuffer<double>  buffer_double;
+struct Buffer
+{
+    TypedBuffer<double> buffer_double;
     TypedBuffer<uint8_t> buffer_uint8_t;
     TypedBuffer<uint16_t> buffer_uint16_t;
 };
 
 enum class EMultiverseClientState : unsigned char;
 
-class MultiverseClient {
+class MultiverseClient
+{
 public:
     virtual ~MultiverseClient() = default;
     void set_transport(ClientTransportType t);
 
-    void connect(const std::string &in_host, const std::string &in_server_port, const std::string &in_client_port);
+    void connect(const std::string& in_host, const std::string& in_server_port, const std::string& in_client_port);
     void connect();
     void start();
     virtual bool communicate(const bool resend_request_meta_data = false);
@@ -40,8 +46,10 @@ protected:
     virtual bool init_objects(bool from_request_meta_data = false) = 0;
     virtual void bind_request_meta_data() = 0;
     virtual bool compute_request_and_response_meta_data() = 0;
-    virtual void compute_request_buffer_sizes(std::map<std::string, size_t>& send_sz, std::map<std::string, size_t>& recv_sz) const = 0;
-    virtual void compute_response_buffer_sizes(std::map<std::string, size_t>& send_sz, std::map<std::string, size_t>& recv_sz) const = 0;
+    virtual void compute_request_buffer_sizes(
+        std::map<std::string, size_t>& send_sz, std::map<std::string, size_t>& recv_sz) const = 0;
+    virtual void compute_response_buffer_sizes(
+        std::map<std::string, size_t>& send_sz, std::map<std::string, size_t>& recv_sz) const = 0;
     virtual void bind_response_meta_data() = 0;
     virtual void bind_api_callbacks() = 0;
     virtual void bind_api_callbacks_response() = 0;

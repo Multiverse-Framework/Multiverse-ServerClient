@@ -3,7 +3,7 @@ Language: Cpp
 # BasedOnStyle:  LLVM
 AccessModifierOffset: -4
 AlignAfterOpenBracket: DontAlign
-#IndentCaseBlocks: true
+# IndentCaseBlocks: true
 AlignConsecutiveAssignments: false
 AlignConsecutiveDeclarations: false
 AlignEscapedNewlines: Right
@@ -37,7 +37,7 @@ BraceWrapping:
   SplitEmptyFunction: true
   SplitEmptyRecord: true
   SplitEmptyNamespace: true
-  #BeforeLambdaBody: true
+  # BeforeLambdaBody: true
 BreakBeforeBinaryOperators: None
 BreakBeforeBraces: Custom
 BreakBeforeInheritanceComma: true
@@ -70,7 +70,7 @@ IncludeCategories:
     Priority: 1
 IncludeIsMainRegex: "(Test)?$"
 IndentCaseLabels: false
-IndentPPDirectives: None #BeforeHash is not available, don't know why.
+IndentPPDirectives: None # BeforeHash is not available, don't know why.
 IndentWidth: 4
 IndentWrappedFunctionNames: false
 JavaScriptQuotes: Leave

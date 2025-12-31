@@ -238,9 +238,9 @@ static Json::Value sort_json_by_key(const Json::Value& original)
     Json::Value sorted(Json::objectValue);
     for (const std::string& key : keys)
     {
-        sorted[key] = original[key].isObject()  ? sort_json_by_key(original[key])
-                      : original[key].isArray() ? sort_json_array(original[key])
-                                                : original[key];
+        sorted[key] = original[key].isObject()
+                          ? sort_json_by_key(original[key])
+                          : original[key].isArray() ? sort_json_array(original[key]) : original[key];
     }
     return sorted;
 }
@@ -1508,9 +1508,9 @@ void MultiverseServer::wait_for_receive_data()
                         !worlds[world_name].objects[object_name].attributes[attribute_name].attribute_double.is_sent ||
                         !worlds[world_name].objects[object_name].attributes[attribute_name].attribute_uint8_t.is_sent ||
                         !worlds[world_name]
-                            .objects[object_name]
-                            .attributes[attribute_name]
-                            .attribute_uint16_t.is_sent) &&
+                             .objects[object_name]
+                             .attributes[attribute_name]
+                             .attribute_uint16_t.is_sent) &&
                     !ShutdownManager::is_shutdown())
                 {
                     const double now = get_time_now();
@@ -2232,7 +2232,7 @@ void start_multiverse_server_udp(const std::string& host, const std::string& por
             }
         }
         lock.unlock();
-        
+
         for (auto& [addr, t] : workers)
         {
             if (t.joinable())

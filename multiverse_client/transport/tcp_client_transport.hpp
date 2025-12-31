@@ -10,7 +10,10 @@ public:
     TcpClientTransport();
     ~TcpClientTransport();
 
-    ClientTransportType type() const override { return ClientTransportType::Tcp; }
+    ClientTransportType type() const override
+    {
+        return ClientTransportType::Tcp;
+    }
 
     void connect(const std::string& endpoint) override;
     void disconnect() override;

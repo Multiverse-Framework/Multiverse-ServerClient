@@ -17,12 +17,6 @@ ifeq ($(OS),Windows_NT)
     PATH_SEP        = /
     EXE_EXT         = .exe
 
-    PYBIND_INCLUDE_DIR = $(shell py.exe -m pybind11 --includes)
-    PYTHON_VER         = $(shell py.exe -c "import sys; print(f'{sys.version_info.major}{sys.version_info.minor}')")
-    PYBIND_EXT         = multiverse_client_pybind$(shell py.exe -c "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))")
-    PYTHON_LIBDIR      = $(shell py.exe -c "import sysconfig; print(sysconfig.get_config_var('BINDIR'))")
-    PYTHON_LIB         = $(PYTHON_LIBDIR)$(PATH_SEP)python$(PYTHON_VER).dll
-
     RM       = rm -f
     SYS_LIBS = -lws2_32 -pthread
 else
@@ -33,14 +27,6 @@ else
     EXT_IMP_STATIC  = .a
     PATH_SEP        = /
     EXE_EXT         =
-
-    PYBIND_INCLUDE_DIR = $(shell python3 -m pybind11 --includes)
-    PYTHON_VER         = $(shell python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-    PYBIND_EXT         = multiverse_client_pybind$(shell python3-config --extension-suffix)
-    PYTHON_LIBDIR      = $(shell python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
-    PYTHON_MULTIARCH   = $(shell python3 -c "import sysconfig; print(sysconfig.get_config_var('MULTIARCH'))")
-    PYTHON_LIB_WITH_MULTIARCH = $(shell echo $(PYTHON_LIBDIR) | grep -q $(PYTHON_MULTIARCH) && echo $(PYTHON_LIBDIR) || echo $(PYTHON_LIBDIR)/$(PYTHON_MULTIARCH))
-    PYTHON_LIB         = $(PYTHON_LIB_WITH_MULTIARCH)$(PATH_SEP)libpython$(PYTHON_VER).so
 
     RM       = rm -f
     SYS_LIBS = -pthread
@@ -69,9 +55,6 @@ CLIENT_OBJ      = multiverse_client.o
 CLIENT_JSON_SRC = multiverse_client_json.cpp $(TRANSPORT_CLIENT_SRC)
 CLIENT_JSON_OBJ = multiverse_client_json.o
 
-PYBIND_SRC = multiverse_client_pybind.cpp
-PYBIND_OBJ = multiverse_client_pybind.o
-
 # Test compile flags
 TEST_CXXFLAGS = -std=c++17 -O2 -Wall -Wextra \
                 -I.$(PATH_SEP)..$(PATH_SEP)ext$(PATH_SEP)include \
@@ -95,12 +78,6 @@ CLIENT_JSON_SHARED_LIB        = $(LIB_DIR)$(PATH_SEP)libmultiverse_client_json$(
 CLIENT_JSON_STATIC_LIB        = $(LIB_DIR)$(PATH_SEP)libmultiverse_client_json$(EXT_A)
 CLIENT_JSON_IMPORT_LIB        = $(LIB_DIR)$(PATH_SEP)libmultiverse_client_json$(EXT_IMP)
 CLIENT_JSON_IMPORT_STATIC_LIB = $(LIB_DIR)$(PATH_SEP)libmultiverse_client_json$(EXT_IMP_STATIC)
-
-PYBIND_LIB = $(LIB_DIR)$(PATH_SEP)$(PYBIND_EXT)
-
-PYBIND_CXXFLAGS = -O3 -Wall -I.$(PATH_SEP) $(PYBIND_INCLUDE_DIR) \
-                  -I.$(PATH_SEP)..$(PATH_SEP)ext$(PATH_SEP)include \
-                  -std=c++17 -fPIC -fvisibility=hidden
 
 # --- transport variants ------------------------------------------------------
 
@@ -258,22 +235,11 @@ $(CLIENT_JSON_STATIC_LIB): $(CLIENT_JSON_SRC) $(CLIENT_STATIC_LIB)
 		$(CLIENT_JSON_OBJ) \
 		$(CLIENT_STATIC_LIB)
 
-$(PYBIND_LIB): $(PYBIND_SRC) $(CLIENT_STATIC_LIB)
-	@echo "Building pybind module..."
-	$(CXX) $(PYBIND_CXXFLAGS) $(LDFLAGS) \
-		$< -o $@ \
-		$(CLIENT_STATIC_LIB) \
-		-l:libzmq$(EXT_IMP_STATIC) \
-		$(PYTHON_LIB) \
-		$(SYS_LIBS)
-
 # --- final top-level target --------------------------------------------------
 
 all: $(CLIENT_SHARED_LIB) $(CLIENT_STATIC_LIB) \
      $(CLIENT_JSON_SHARED_LIB) $(CLIENT_JSON_STATIC_LIB) \
-     $(PYBIND_LIB) \
-     $(VARIANT_TARGETS) \
-     $(TEST_APP_VARIANTS) $(TEST_APP_RGB_VARIANTS)
+     $(VARIANT_TARGETS)
 	 $(RM) *.o
 	 $(RM) transport/*.o
 	@echo "✅ All variants (ZMQ, TCP, UDP, ALL), default libs, pybind, and tests built."
@@ -323,4 +289,3 @@ clean:
 		$(RM) $(BIN_DIR)test_multiverse_client_rgb_$(v)$(EXE_EXT); )
 
 	@echo "✅ Clean complete."
-

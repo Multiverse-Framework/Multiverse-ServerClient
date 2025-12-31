@@ -27,10 +27,22 @@ typedef long ssize_t;
 using socket_t = SOCKET;
 #define CLOSESOCK(s) closesocket(s)
 
-inline bool is_valid_socket(socket_t s) { return s != INVALID_SOCKET; }
-inline void close_socket(socket_t s) { closesocket(s); }
-inline int sock_errno() { return WSAGetLastError(); }
-inline socket_t invalid_socket() { return INVALID_SOCKET; }
+inline bool is_valid_socket(socket_t s)
+{
+    return s != INVALID_SOCKET;
+}
+inline void close_socket(socket_t s)
+{
+    closesocket(s);
+}
+inline int sock_errno()
+{
+    return WSAGetLastError();
+}
+inline socket_t invalid_socket()
+{
+    return INVALID_SOCKET;
+}
 
 #else // POSIX / Linux / macOS
 #include <sys/types.h>
@@ -45,10 +57,22 @@ inline socket_t invalid_socket() { return INVALID_SOCKET; }
 using socket_t = int;
 #define CLOSESOCK(s) close(s)
 
-inline bool is_valid_socket(socket_t s) { return s >= 0; }
-inline void close_socket(socket_t s) { close(s); }
-inline int sock_errno() { return errno; }
-inline socket_t invalid_socket() { return -1; }
+inline bool is_valid_socket(socket_t s)
+{
+    return s >= 0;
+}
+inline void close_socket(socket_t s)
+{
+    close(s);
+}
+inline int sock_errno()
+{
+    return errno;
+}
+inline socket_t invalid_socket()
+{
+    return -1;
+}
 
 #endif
 
@@ -57,17 +81,21 @@ inline socket_t invalid_socket() { return -1; }
  *
  * RAII-style class to manage WSAStartup on Windows.
  */
-class SocketPlatformInit {
+class SocketPlatformInit
+{
 public:
-    SocketPlatformInit() {
+    SocketPlatformInit()
+    {
 #ifdef _WIN32
         WSADATA wsa;
-        if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
+        if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
+        {
             throw std::runtime_error("WSAStartup failed");
         }
 #endif
     }
-    ~SocketPlatformInit() {
+    ~SocketPlatformInit()
+    {
 #ifdef _WIN32
         WSACleanup();
 #endif
@@ -77,11 +105,13 @@ public:
 /**
  * @brief Creates a standard cross-platform error message string.
  */
-static inline std::string make_socket_error_str(const std::string& prefix) {
+static inline std::string make_socket_error_str(const std::string& prefix)
+{
     return prefix + " (errno " + std::to_string(sock_errno()) + ")";
 }
 
-inline void sleep_ms(int ms) {
+inline void sleep_ms(int ms)
+{
 #ifdef _WIN32
     Sleep(ms);
 #else

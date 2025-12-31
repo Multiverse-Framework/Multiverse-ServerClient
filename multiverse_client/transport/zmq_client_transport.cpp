@@ -10,8 +10,8 @@ extern "C" {
 #include <thread>
 
 ZmqClientTransport::ZmqClientTransport()
-    : ctx_(nullptr),
-      sock_(nullptr)
+    : ctx_(nullptr)
+    , sock_(nullptr)
 {
     ctx_ = zmq_ctx_new();
     if (!ctx_)
@@ -51,13 +51,13 @@ ZmqClientTransport::~ZmqClientTransport()
     }
 }
 
-void ZmqClientTransport::connect(const std::string &endpoint)
+void ZmqClientTransport::connect(const std::string& endpoint)
 {
     if (!sock_)
         throw std::runtime_error("ZmqClientTransport: socket not created");
 
     constexpr size_t kMaxAttempts = 12;
-    constexpr int    kSleepMs     = 200;
+    constexpr int kSleepMs = 200;
 
     for (size_t attempt = 1; attempt <= kMaxAttempts; ++attempt)
     {
@@ -72,8 +72,8 @@ void ZmqClientTransport::connect(const std::string &endpoint)
         }
     }
 
-    throw std::runtime_error("ZmqClientTransport: connect failed to " + endpoint +
-                             " after " + std::to_string(kMaxAttempts) + " attempts");
+    throw std::runtime_error(
+        "ZmqClientTransport: connect failed to " + endpoint + " after " + std::to_string(kMaxAttempts) + " attempts");
 }
 
 void ZmqClientTransport::disconnect()
@@ -103,7 +103,7 @@ void ZmqClientTransport::disconnect()
     }
 }
 
-void ZmqClientTransport::send(const void *data, size_t len, bool more)
+void ZmqClientTransport::send(const void* data, size_t len, bool more)
 {
     if (!sock_)
         throw std::runtime_error("ZmqClientTransport: no socket");
@@ -115,12 +115,12 @@ void ZmqClientTransport::send(const void *data, size_t len, bool more)
     }
 }
 
-void ZmqClientTransport::send_text(const std::string &text, bool more)
+void ZmqClientTransport::send_text(const std::string& text, bool more)
 {
     send(text.data(), text.size(), more);
 }
 
-void ZmqClientTransport::recv(void *data, size_t len)
+void ZmqClientTransport::recv(void* data, size_t len)
 {
     if (!sock_)
         throw std::runtime_error("ZmqClientTransport: no socket");
@@ -134,8 +134,7 @@ void ZmqClientTransport::recv(void *data, size_t len)
     // Validate received size matches expected size (consistent with TCP/UDP)
     if (static_cast<size_t>(rc) != len)
     {
-        throw std::runtime_error("ZmqClientTransport: recv size mismatch (expected " +
-                                 std::to_string(len) + ", got " +
+        throw std::runtime_error("ZmqClientTransport: recv size mismatch (expected " + std::to_string(len) + ", got " +
                                  std::to_string(rc) + ")");
     }
 }
@@ -155,13 +154,12 @@ std::string ZmqClientTransport::recv_text()
         throw std::runtime_error("ZmqClientTransport: recv_text failed");
     }
 
-    std::string out(static_cast<char *>(zmq_msg_data(&msg)),
-                    zmq_msg_size(&msg));
+    std::string out(static_cast<char*>(zmq_msg_data(&msg)), zmq_msg_size(&msg));
     zmq_msg_close(&msg);
     return out;
 }
 
-bool ZmqClientTransport::recv_multipart(std::vector<std::string> &parts)
+bool ZmqClientTransport::recv_multipart(std::vector<std::string>& parts)
 {
     if (!sock_)
         return false;
@@ -180,8 +178,7 @@ bool ZmqClientTransport::recv_multipart(std::vector<std::string> &parts)
             return false;
         }
 
-        parts.emplace_back(static_cast<char *>(zmq_msg_data(&msg)),
-                           zmq_msg_size(&msg));
+        parts.emplace_back(static_cast<char*>(zmq_msg_data(&msg)), zmq_msg_size(&msg));
         int more = zmq_msg_more(&msg);
         zmq_msg_close(&msg);
 

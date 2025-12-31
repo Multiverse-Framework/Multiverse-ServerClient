@@ -2,9 +2,15 @@
 #include <string>
 #include <vector>
 
-enum class ClientTransportType : unsigned char { Tcp, Udp, Zmq };
+enum class ClientTransportType : unsigned char
+{
+    Tcp,
+    Udp,
+    Zmq
+};
 
-class IClientTransport {
+class IClientTransport
+{
 public:
     virtual ~IClientTransport() = default;
 

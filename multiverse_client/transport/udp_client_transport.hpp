@@ -9,7 +9,10 @@ public:
     UdpClientTransport();
     ~UdpClientTransport();
 
-    ClientTransportType type() const override { return ClientTransportType::Udp; }
+    ClientTransportType type() const override
+    {
+        return ClientTransportType::Udp;
+    }
 
     void connect(const std::string& endpoint) override;
     void disconnect() override;
