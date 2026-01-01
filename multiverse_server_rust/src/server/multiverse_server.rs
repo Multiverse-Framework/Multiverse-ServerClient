@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::time::sleep;
 #[allow(unused_imports)]
@@ -106,10 +107,17 @@ pub struct MultiverseServer {
     request_world_name: String,
     request_simulation_name: String,
 
+    // Cleanup tracking - maintains simulation info even after local state is cleared
+    cleanup_world_name: String,
+    cleanup_simulation_name: String,
+
     // Flags
     is_receive_data_sent: bool,
     #[allow(dead_code)]
     continue_state: bool,
+
+    // Per-instance shutdown flag (for worker restart)
+    instance_shutdown: Option<Arc<AtomicBool>>,
 }
 
 fn merge_json_attributes(
@@ -178,8 +186,11 @@ impl MultiverseServer {
             simulation_name: String::new(),
             request_world_name: String::new(),
             request_simulation_name: String::new(),
+            cleanup_world_name: String::new(),
+            cleanup_simulation_name: String::new(),
             is_receive_data_sent: false,
             continue_state: false,
+            instance_shutdown: None,
         })
     }
 
@@ -210,13 +221,16 @@ impl MultiverseServer {
             simulation_name: String::new(),
             request_world_name: String::new(),
             request_simulation_name: String::new(),
+            cleanup_world_name: String::new(),
+            cleanup_simulation_name: String::new(),
             is_receive_data_sent: false,
             continue_state: false,
+            instance_shutdown: None,
         })
     }
 
     #[cfg(feature = "use-udp")]
-    pub async fn new_udp(host: &str, port: &str) -> Result<Self> {
+    pub async fn new_udp(host: &str, port: &str, instance_shutdown: Option<Arc<AtomicBool>>) -> Result<Self> {
         use crate::transport::UdpTransport;
 
         let mut transport = UdpTransport::new();
@@ -241,13 +255,24 @@ impl MultiverseServer {
             simulation_name: String::new(),
             request_world_name: String::new(),
             request_simulation_name: String::new(),
+            cleanup_world_name: String::new(),
+            cleanup_simulation_name: String::new(),
             is_receive_data_sent: false,
             continue_state: false,
+            instance_shutdown,
         })
     }
 
+    fn is_instance_shutdown(&self) -> bool {
+        if let Some(ref shutdown) = self.instance_shutdown {
+            shutdown.load(Ordering::Acquire)
+        } else {
+            false
+        }
+    }
+
     pub async fn start(&mut self) -> Result<()> {
-        while !crate::utils::should_shutdown() {
+        while !crate::utils::should_shutdown() && !self.is_instance_shutdown() {
             match self.state {
                 ServerState::ReceiveRequestMetaData => {
                     self.send_buffer = Buffer::default();
@@ -303,6 +328,7 @@ impl MultiverseServer {
                             simulation.meta_data_state = MetaDataState::Reset;
                         }
                     }
+                    info!("[Server] Current time in world {}: {}", self.world_name, world.time);
                     drop(worlds);
 
                     if self.request_world_name != self.world_name
@@ -402,26 +428,99 @@ impl MultiverseServer {
                     let error_msg = e.to_string();
                     if error_msg.contains("receive timeout") {
                         // Timeout - check shutdown and continue
-                        if crate::utils::should_shutdown() {
+                        if crate::utils::should_shutdown() || self.is_instance_shutdown() {
                             return Err(e);
                         }
                         continue;
                     }
 
-                    if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
-                        match io_err.kind() {
+                    // Check if this is a timeout error (from tokio::time::timeout)
+                    let is_timeout = e.to_string().contains("timeout");
+
+                    // Check if this is a disconnect error
+                    let is_disconnect = if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
+                        matches!(io_err.kind(),
                             std::io::ErrorKind::UnexpectedEof |
                             std::io::ErrorKind::ConnectionReset |
-                            std::io::ErrorKind::BrokenPipe => {
-                                // Log as INFO, this is a normal disconnect, not a server error
-                                info!("[Server] Client at socket {} disconnected: {}", self.socket_addr, io_err.kind());
-                                return Err(e);
+                            std::io::ErrorKind::BrokenPipe)
+                    } else {
+                        false
+                    };
+
+                    if (is_disconnect || is_timeout) && self.transport_type == TransportType::Tcp && !crate::utils::should_shutdown() && !self.is_instance_shutdown() {
+                        info!("[Server] TCP client disconnected on {} ({}), waiting for new client...",
+                              self.socket_addr,
+                              if is_timeout { "timeout" } else { "connection closed" });
+
+                        // For TCP, accept new clients in a loop like C++
+                        // Clean up state from previous client ONCE (not in retry loop)
+                        if !self.world_name.is_empty() && !self.simulation_name.is_empty() {
+                            let mut worlds = WORLDS.lock();
+                            if let Some(world) = worlds.get_mut(&self.world_name) {
+                                if world.simulations.contains_key(&self.simulation_name) {
+                                    info!("[Server] [{}] Removing simulation {} from world {} for new client",
+                                          self.socket_addr, self.simulation_name, self.world_name);
+                                    world.simulations.remove(&self.simulation_name);
+
+                                    if world.simulations.is_empty() {
+                                        info!("[Server] [{}] Dropping world '{}' from global WORLDS map (no more simulations, {} total worlds before removal)",
+                                              self.socket_addr, self.world_name, worlds.len());
+                                        worlds.remove(&self.world_name);
+                                        info!("[Server] [{}] World '{}' dropped successfully, {} worlds remaining",
+                                              self.socket_addr, self.world_name, worlds.len());
+                                    } else {
+                                        info!("[Server] [{}] World '{}' still has {} simulation(s), keeping it alive",
+                                              self.socket_addr, self.world_name, world.simulations.len());
+                                    }
+                                }
                             }
-                            _ => {}
                         }
+
+                        // Reset state for new client
+                        self.request_meta_data_json = serde_json::Value::Null;
+                        self.response_meta_data_json = serde_json::Value::Null;
+                        self.send_objects_json = serde_json::Value::Null;
+                        self.receive_objects_json = serde_json::Value::Null;
+                        self.send_buffer = Buffer::default();
+                        self.receive_buffer = Buffer::default();
+                        self.conversion_map = ConversionMap::default();
+                        self.world_name.clear();
+                        self.simulation_name.clear();
+                        self.request_world_name.clear();
+                        self.request_simulation_name.clear();
+                        self.is_receive_data_sent = false;
+                        // Clear cleanup fields since we already cleaned up above
+                        self.cleanup_world_name.clear();
+                        self.cleanup_simulation_name.clear();
+
+                        // Keep accepting until we get a healthy connection
+                        'accept_loop: loop {
+                            // Accept new client connection
+                            match self.transport.accept().await {
+                                Ok(_) => {
+                                    info!("[Server] New TCP client accepted on {}", self.socket_addr);
+                                    // Connection accepted, will validate when we try to receive first message
+                                    break 'accept_loop;
+                                }
+                                Err(accept_err) => {
+                                    warn!("[Server] Accept failed on {}: {}, retrying in 100ms...", self.socket_addr, accept_err);
+                                    sleep(Duration::from_millis(100)).await;
+                                    if crate::utils::should_shutdown() {
+                                        return Err(e);
+                                    }
+                                    continue 'accept_loop;
+                                }
+                            }
+                        }
+
+                        // Successfully accepted, continue to ReceiveRequestMetaData
+                        // If the connection is dead, we'll detect it on first read/write and come back here
+                        return Ok(ServerState::ReceiveRequestMetaData);
+                    } else {
+                        // Not TCP or shutdown requested, exit normally
+                        error!("[Server] Receive error at socket {}: {}", self.socket_addr, e);
+                        return Err(e);
                     }
-                    error!("[Server] Receive error at socket {}: {}", self.socket_addr, e);
-                    return Err(e);
                 }
             };
 
@@ -480,6 +579,7 @@ impl MultiverseServer {
                 .entry(self.world_name.clone())
                 .or_insert_with(World::default);
             world.time = time;
+            info!("[Server] Updated world {} time to {}", self.world_name, time);
             drop(worlds);
 
             // Process data buffers based on message_spec
@@ -657,6 +757,8 @@ impl MultiverseServer {
             // Must drop the lock to await in the loop
             let req_world = self.request_world_name.clone();
             let req_sim = self.request_simulation_name.clone();
+            info!("[Server] Socket {} is waiting for {} to be in the normal state.",
+                  self.socket_addr, req_sim);
             drop(worlds);
 
             // Wait for the target simulation to be in a Normal state
@@ -716,6 +818,7 @@ impl MultiverseServer {
             // Normal connection: set both
             self.world_name = self.request_world_name.clone();
             self.simulation_name = self.request_simulation_name.clone();
+            // NOTE: cleanup fields will be set after first successful send
         }
 
         // --- API Callback State Handling ---
@@ -1109,7 +1212,12 @@ impl MultiverseServer {
             }
         }
 
-        drop(worlds);
+        info!("[Server] bind_receive_objects: data_vec sizes: double={}, uint8={}, uint16={}",
+              self.receive_buffer.buffer_double.data_vec.len(),
+              self.receive_buffer.buffer_uint8.data_vec.len(),
+              self.receive_buffer.buffer_uint16.data_vec.len()
+        );
+        // drop(worlds);
 
         // Add to response
         if let Some(response_obj) = self.response_meta_data_json.as_object_mut() {
@@ -1136,6 +1244,15 @@ impl MultiverseServer {
             self.send_message(json_str.as_bytes(), false).await?;
 
             debug!("[Server] Sent response metadata");
+
+            // Now that we've successfully sent data, set cleanup fields
+            // This ensures Drop will clean up if we crash/disconnect later
+            if self.cleanup_world_name.is_empty() {
+                self.cleanup_world_name = self.world_name.clone();
+                self.cleanup_simulation_name = self.simulation_name.clone();
+                debug!("[Server] Set cleanup fields: world={}, simulation={}",
+                       self.cleanup_world_name, self.cleanup_simulation_name);
+            }
         }
 
         Ok(())
@@ -1338,6 +1455,7 @@ impl MultiverseServer {
             .get(&self.world_name)
             .map(|w| w.time)
             .unwrap_or(0.0);
+        info!("[Server] Sending receive data at time {}", time);
         drop(worlds);
 
         let has_more_data = buffer_count > 0;
@@ -1386,19 +1504,43 @@ impl MultiverseServer {
 impl Drop for MultiverseServer {
     fn drop(&mut self) {
         info!("[Server] Close socket {}. Shutting down and cleaning up...", self.socket_addr);
-        if !self.simulation_name.is_empty() {
+        // Use cleanup fields which persist even after reconnection clears the current fields
+        if !self.cleanup_simulation_name.is_empty() && !self.cleanup_world_name.is_empty() {
             let mut worlds = WORLDS.lock();
-            if let Some(world) = worlds.get_mut(&self.world_name) {
-                if world.simulations.remove(&self.simulation_name).is_some() {
-                    info!("[Server] Cleaned up simulation {} from world {} on socket {}",
-                          self.simulation_name, self.world_name, self.socket_addr);
+            let should_remove_world = if let Some(world) = worlds.get_mut(&self.cleanup_world_name) {
+                if world.simulations.remove(&self.cleanup_simulation_name).is_some() {
+                    info!("[Server] [{}] Cleaned up simulation {} from world {}",
+                          self.socket_addr, self.cleanup_simulation_name, self.cleanup_world_name);
+
+                    // Check if world is now empty
+                    if world.simulations.is_empty() {
+                        info!("[Server] [{}] World '{}' has no more simulations, will drop it ({}  total worlds before removal)",
+                              self.socket_addr, self.cleanup_world_name, worlds.len());
+                        true
+                    } else {
+                        info!("[Server] [{}] World '{}' still has {} simulation(s) in Drop, keeping it alive",
+                              self.socket_addr, self.cleanup_world_name, world.simulations.len());
+                        false
+                    }
                 } else {
-                    warn!("[Server] Simulation {} not found in world {} for cleanup on socket {}",
-                          self.simulation_name, self.world_name, self.socket_addr);
+                    warn!("[Server] [{}] Simulation {} not found in world {} for cleanup",
+                          self.socket_addr, self.cleanup_simulation_name, self.cleanup_world_name);
+                    false
                 }
+            } else {
+                warn!("[Server] [{}] World '{}' not found in WORLDS map for cleanup",
+                      self.socket_addr, self.cleanup_world_name);
+                false
+            };
+
+            // Remove world after releasing the mutable borrow
+            if should_remove_world {
+                worlds.remove(&self.cleanup_world_name);
+                info!("[Server] [{}] World '{}' dropped successfully in Drop, {} worlds remaining",
+                      self.socket_addr, self.cleanup_world_name, worlds.len());
             }
         } else {
-            debug!("[Server] No simulation name set, no global state to clean up for socket {}", self.socket_addr);
+            debug!("[Server] [{}] No simulation name set, no global state to clean up", self.socket_addr);
         }
 
         info!("[Server] Cleanup complete for socket {}", self.socket_addr);

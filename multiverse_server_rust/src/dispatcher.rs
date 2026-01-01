@@ -1,9 +1,8 @@
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
-use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, error, info, warn};
 use std::thread::JoinHandle as StdJoinHandle;
@@ -13,43 +12,9 @@ use crate::server::MultiverseServer;
 use crate::utils::should_shutdown;
 use crate::protocol::{raw_tcp, raw_udp};
 
-/// Helper function to check and spawn workers if needed
-/// Returns true if a new worker was spawned, false if already running
-async fn ensure_worker_spawned<F, Fut>(
-    workers: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
-    worker_addr: &str,
-    worker_fn: F,
-) -> Result<bool>
-where
-    F: FnOnce() -> Fut + 'static,
-    Fut: std::future::Future<Output = Result<()>> + 'static,
-{
-    let mut workers_map = workers.lock().await;
-
-    // Remove finished workers
-    if let Some(handle) = workers_map.get(worker_addr) {
-        if handle.is_finished() {
-            info!("Worker for {} found but was finished. Removing to restart.", worker_addr);
-            workers_map.remove(worker_addr);
-        }
-    }
-
-    // Check if worker already exists
-    if workers_map.contains_key(worker_addr) {
-        debug!("Worker for {} already running.", worker_addr);
-        return Ok(false);
-    }
-
-    // Spawn new worker
-    let worker_addr_clone = worker_addr.to_string();
-    let handle = tokio::task::spawn_local(async move {
-        if let Err(e) = worker_fn().await {
-            error!("[Worker] Error on {}: {}", worker_addr_clone, e);
-        }
-    });
-
-    workers_map.insert(worker_addr.to_string(), handle);
-    Ok(true)
+struct WorkerHandle {
+    thread: StdJoinHandle<()>,
+    shutdown: Arc<AtomicBool>,
 }
 
 pub async fn start_tcp_dispatcher(host: String, port: String) -> Result<()> {
@@ -60,8 +25,8 @@ pub async fn start_tcp_dispatcher(host: String, port: String) -> Result<()> {
 
     info!("[Server-TCP] Dispatcher listening on {}", addr);
 
-    let workers: Arc<Mutex<HashMap<String, JoinHandle<()>>>> =
-        Arc::new(Mutex::new(HashMap::new()));
+    let workers: Arc<std::sync::Mutex<HashMap<String, StdJoinHandle<()>>>> =
+        Arc::new(std::sync::Mutex::new(HashMap::new()));
 
     loop {
         // Check shutdown flag
@@ -85,28 +50,23 @@ pub async fn start_tcp_dispatcher(host: String, port: String) -> Result<()> {
             }
         };
 
-        // Handle handshake in separate task
+        // Handle handshake inline
         let workers_clone = Arc::clone(&workers);
         let host_clone = host.clone();
         let port_base: u16 = port.parse().unwrap_or(7000);
 
-        // --- Use spawn_local ---
-        tokio::task::spawn_local(async move {
-            if let Err(e) =
-                handle_tcp_handshake(stream, workers_clone, host_clone, port_base).await
-            {
-                error!("[Server-TCP] Handshake error: {}", e);
-            }
-        });
+        if let Err(e) = handle_tcp_handshake(stream, workers_clone, host_clone, port_base).await {
+            error!("[Server-TCP] Handshake error: {}", e);
+        }
     }
 
     info!("[Server-TCP] Dispatcher shutting down, waiting for workers...");
 
-    // Wait for all workers
-    let mut workers = workers.lock().await;
+    // Wait for all workers (using standard thread join)
+    let mut workers = workers.lock().unwrap();
     for (addr, handle) in workers.drain() {
         info!("[Server-TCP] Waiting for worker {}", addr);
-        let _ = handle.await;
+        let _ = handle.join();
     }
 
     info!("[Server-TCP] Dispatcher stopped.");
@@ -115,7 +75,7 @@ pub async fn start_tcp_dispatcher(host: String, port: String) -> Result<()> {
 
 async fn handle_tcp_handshake(
     mut stream: TcpStream,
-    workers: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
+    workers: Arc<std::sync::Mutex<HashMap<String, StdJoinHandle<()>>>>,
     host: String,
     port_base: u16,
 ) -> Result<()> {
@@ -135,7 +95,7 @@ async fn handle_tcp_handshake(
                         debug!("[Server-TCP] Handshake failed: client reset connection.");
                         return Ok(()); // Not a server error.
                     }
-                    _ => {} 
+                    _ => {}
                 }
             }
             // For other errors, or non-IO errors, bubble them up.
@@ -161,34 +121,46 @@ async fn handle_tcp_handshake(
     };
 
     let worker_addr = format!("{}:{}", host, worker_port);
-    info!("[Server-TCP] Launching worker for {}", worker_addr);
+    info!("[Server-TCP] Received handshake request for {}", worker_addr);
 
-    // Spawn worker if not already running using helper function
-    let worker_host = host.clone();
-    let worker_port_str = worker_port.to_string();
-    let workers_clone = Arc::clone(&workers);
+    // Use a blocking std::sync::Mutex to check workers
+    let mut workers_map = workers.lock().unwrap();
+    if let Some(handle) = workers_map.get(&worker_addr) {
+        if handle.is_finished() {
+            info!("[Server-TCP] Worker for {} found but was finished. Removing to restart.", worker_addr);
+            workers_map.remove(&worker_addr);
+        }
+    }
+    if !workers_map.contains_key(&worker_addr) {
+        info!("[Server-TCP] Launching worker for {}", worker_addr);
+        let worker_addr_clone = worker_addr.clone();
+        let worker_host = host.clone();
+        let worker_port_str = worker_port.to_string();
 
-    let spawned = ensure_worker_spawned(
-        workers_clone,
-        &worker_addr,
-        move || {
-            let host = worker_host;
-            let port = worker_port_str;
-            async move {
-                run_tcp_worker(&host, &port).await
-            }
-        },
-    )
-    .await?;
+        // Spawn a new OS thread, not a tokio task
+        let handle = std::thread::spawn(move || {
+            // Create a new tokio runtime *for this thread*
+            let rt = Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let local_set = tokio::task::LocalSet::new();
 
-    // Give worker time to start if it was just spawned
-    if spawned {
-        sleep(Duration::from_millis(500)).await;
+            // Run the !Send worker task on this new runtime
+            local_set.block_on(&rt, async move {
+                if let Err(e) = run_tcp_worker(&worker_host, &worker_port_str).await {
+                    error!("[TCP-Worker] Error on {}: {}", worker_addr_clone, e);
+                }
+            });
+        });
+
+        workers_map.insert(worker_addr.clone(), handle);
+    } else {
+        debug!("[Server-TCP] Worker for {} already running.", worker_addr);
     }
 
     // Send response with worker address
     let response = vec![worker_addr.as_bytes().to_vec()];
-    // --- UPDATED CALL ---
     raw_tcp::send_parts(&mut stream, &response).await?;
 
     debug!("[Server-TCP] Handshake complete for {}", worker_addr);
@@ -214,8 +186,8 @@ pub async fn start_udp_dispatcher(host: String, port: String) -> Result<()> {
 
     info!("[Server-UDP] Dispatcher binding on {}", addr);
 
-    let workers: Arc<Mutex<HashMap<String, JoinHandle<()>>>> =
-        Arc::new(Mutex::new(HashMap::new()));
+    let workers: Arc<std::sync::Mutex<HashMap<String, WorkerHandle>>> =
+        Arc::new(std::sync::Mutex::new(HashMap::new()));
 
     let mut buf = vec![0u8; 1200];
 
@@ -244,7 +216,6 @@ pub async fn start_udp_dispatcher(host: String, port: String) -> Result<()> {
         };
 
         // Handle handshake
-        // --- UPDATED CALL ---
         let parts = match raw_udp::decode_parts(&buf[..size]) {
             Ok(parts) => parts,
             Err(e) => {
@@ -275,34 +246,58 @@ pub async fn start_udp_dispatcher(host: String, port: String) -> Result<()> {
         };
 
         let worker_addr = format!("{}:{}", host, worker_port);
-        info!("[Server-UDP] Launching worker for {}", worker_addr);
+        info!("[Server-UDP] Received handshake request for {}", worker_addr);
 
-        // Spawn worker if not already running using helper function
+        let old_handle = {
+            let mut workers_map = workers.lock().unwrap();
+            workers_map.remove(&worker_addr)
+        };
+
+        if let Some(old_handle) = old_handle {
+            info!("[Server-UDP] Stopping old worker on {}", worker_addr);
+            old_handle.shutdown.store(true, Ordering::Release);
+            if let Err(e) = old_handle.thread.join() {
+                warn!("[Server-UDP] Old worker on {} panicked: {:?}", worker_addr, e);
+            } else {
+                info!("[Server-UDP] Old worker on {} stopped and cleaned up", worker_addr);
+            }
+        }
+
+        // Now create new worker
+        info!("[Server-UDP] Launching worker for {}", worker_addr);
+        let worker_addr_clone = worker_addr.clone();
         let worker_host = host.clone();
         let worker_port_str = worker_port.to_string();
-        let workers_clone = Arc::clone(&workers);
+        let worker_shutdown = Arc::new(AtomicBool::new(false));
+        let worker_shutdown_clone = Arc::clone(&worker_shutdown);
 
-        let spawned = ensure_worker_spawned(
-            workers_clone,
-            &worker_addr,
-            move || {
-                let host = worker_host;
-                let port = worker_port_str;
-                async move {
-                    run_udp_worker(&host, &port).await
+        // Spawn a new OS thread, not a tokio task
+        let thread = std::thread::spawn(move || {
+            // Create a new tokio runtime *for this thread*
+            let rt = Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let local_set = tokio::task::LocalSet::new();
+
+            // Run the !Send worker task on this new runtime
+            local_set.block_on(&rt, async move {
+                if let Err(e) = run_udp_worker(&worker_host, &worker_port_str, worker_shutdown_clone).await {
+                    error!("[UDP-Worker] Error on {}: {}", worker_addr_clone, e);
                 }
-            },
-        )
-        .await?;
+            });
+        });
 
-        // Give worker time to start if it was just spawned
-        if spawned {
-            sleep(Duration::from_millis(300)).await;
+        {
+            let mut workers_map = workers.lock().unwrap();
+            workers_map.insert(worker_addr.clone(), WorkerHandle {
+                thread,
+                shutdown: worker_shutdown,
+            });
         }
 
         // Send response with worker address
         let response = vec![worker_addr.as_bytes().to_vec()];
-        // --- UPDATED CALL ---
         if let Ok(encoded) = raw_udp::encode_parts(&response) {
             if let Err(e) = socket.send_to(&encoded, client_addr).await {
                 error!("[Server-UDP] Failed to send handshake response: {}", e);
@@ -314,21 +309,22 @@ pub async fn start_udp_dispatcher(host: String, port: String) -> Result<()> {
 
     info!("[Server-UDP] Dispatcher shutting down, waiting for workers...");
 
-    // Wait for all workers
-    let mut workers = workers.lock().await;
+    // Wait for all workers (using standard thread join)
+    let mut workers = workers.lock().unwrap();
     for (addr, handle) in workers.drain() {
         info!("[Server-UDP] Waiting for worker {}", addr);
-        let _ = handle.await;
+        handle.shutdown.store(true, Ordering::Release);
+        let _ = handle.thread.join();
     }
 
     info!("[Server-UDP] Dispatcher stopped.");
     Ok(())
 }
 
-async fn run_udp_worker(host: &str, port: &str) -> Result<()> {
+async fn run_udp_worker(host: &str, port: &str, instance_shutdown: Arc<AtomicBool>) -> Result<()> {
     info!("[UDP-Worker] Starting worker on {}:{}", host, port);
 
-    let mut server = MultiverseServer::new_udp(host, port).await?;
+    let mut server = MultiverseServer::new_udp(host, port, Some(instance_shutdown)).await?;
     server.start().await?;
 
     info!("[UDP-Worker] Worker stopped on {}:{}", host, port);
@@ -383,7 +379,6 @@ pub async fn start_zmq_dispatcher(bind_addr: String) -> Result<()> {
 
                     info!("[Server-ZMQ] Received handshake request for {}", worker_addr);
 
-                    // Use a blocking std::sync::Mutex to check workers
                     let mut workers_map = workers_clone.lock().unwrap();
                     if let Some(handle) = workers_map.get(&worker_addr) {
                         if handle.is_finished() {
@@ -418,7 +413,6 @@ pub async fn start_zmq_dispatcher(bind_addr: String) -> Result<()> {
                     } else {
                         debug!("[Server-ZMQ] Worker for {} already running.", worker_addr);
                     }
-                    // Mutex is dropped here
 
                     // Send reply
                     if let Err(e) = socket.send(&worker_addr, 0) {

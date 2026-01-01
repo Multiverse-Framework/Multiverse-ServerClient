@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::time::{timeout, Duration};
 use tracing::trace;
 
 /// Write exactly n bytes to a TCP stream
@@ -10,9 +11,13 @@ pub async fn write_full(stream: &mut TcpStream, data: &[u8]) -> Result<()> {
     Ok(())
 }
 
-/// Read exactly n bytes from a TCP stream
+/// Read exactly n bytes from a TCP stream with timeout
 pub async fn read_full(stream: &mut TcpStream, buf: &mut [u8]) -> Result<()> {
-    stream.read_exact(buf).await.context("TCP read failed")?;
+    // Use 5-second timeout to match C++ behavior
+    timeout(Duration::from_millis(5000), stream.read_exact(buf))
+        .await
+        .context("TCP read timeout")?
+        .context("TCP read failed")?;
     trace!("[TCP] Read {} bytes", buf.len());
     Ok(())
 }

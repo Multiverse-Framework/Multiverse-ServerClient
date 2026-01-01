@@ -118,8 +118,9 @@ fn split_host_port(bind: &str) -> (String, String) {
 //
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    // Initialize tracing
+    // Initialize tracing with unbuffered output for immediate log visibility
     tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),

@@ -107,15 +107,15 @@ pub async fn send_parts(
 /// Receive parts from a connected UDP socket
 pub async fn recv_parts(socket: &UdpSocket) -> Result<Vec<Vec<u8>>> {
     let mut buf = vec![0u8; MAX_UDP_PAYLOAD];
-    let result = timeout(Duration::from_millis(100), socket.recv(&mut buf)).await;
+    let result = timeout(Duration::from_millis(1000), socket.recv(&mut buf)).await;
     let n = match result {
         Ok(Ok(n)) => n,
         Ok(Err(e)) => {
             return Err(e).context("UDP recv failed");
         }
         Err(_elapsed) => {
-            trace!("[UDP] recv timeout after 1 second");
-            anyhow::bail!("UDP recv timeout");
+            trace!("[UDP] recv timeout after 1000ms");
+            anyhow::bail!("receive timeout");
         }
     };
 
