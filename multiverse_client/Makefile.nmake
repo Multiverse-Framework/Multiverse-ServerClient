@@ -1,0 +1,244 @@
+# ============================================================
+# NMake Makefile (MSVC) - multiverse client (base + variants)
+# - Builds base static libs + base DLLs
+# - Builds variant DLLs (zmq/tcp/udp/all) for client + json
+# - Builds variant static libs (zmq/tcp/udp/all) for client + json
+# - Compiles transport objs once and reuses them
+# ============================================================
+
+# Tools
+CC      = cl
+LIBTOOL = lib
+LINK    = link
+
+# Output folder
+LIBDIR  = ..\lib\windows
+
+# Flags
+CFLAGS  = /nologo /EHsc /std:c++17 /c /O2 /MD /I..\ext\include /I..\ext
+LDFLAGS = /nologo /DLL /LIBPATH:$(LIBDIR)
+
+# External libs
+LIB_ZMQ  = libzmq-mt-4_3_5.lib
+LIB_JSON = jsoncpp.lib
+
+# Sources
+SRC_CLIENT = multiverse_client.cpp
+SRC_JSON   = multiverse_client_json.cpp
+
+SRC_ZMQ = transport\zmq_client_transport.cpp
+SRC_TCP = transport\tcp_client_transport.cpp
+SRC_UDP = transport\udp_client_transport.cpp
+
+# Transport objs (built once)
+OBJ_ZMQ = zmq_client_transport.obj
+OBJ_TCP = tcp_client_transport.obj
+OBJ_UDP = udp_client_transport.obj
+
+# Base objs (built with ALL enabled)
+OBJ_CLIENT = multiverse_client.obj
+OBJ_JSON   = multiverse_client_json.obj
+
+# Base outputs
+STATIC_LIB_CLIENT = $(LIBDIR)\multiverse_client.lib
+STATIC_LIB_JSON   = $(LIBDIR)\multiverse_client_json.lib
+
+DLL_CLIENT    = $(LIBDIR)\multiverse_client.dll
+IMPLIB_CLIENT = $(LIBDIR)\multiverse_client.lib
+
+DLL_JSON      = $(LIBDIR)\multiverse_client_json.dll
+IMPLIB_JSON   = $(LIBDIR)\multiverse_client_json.lib
+
+# Variant defs
+DEFS_zmq = /DUSE_ZMQ=1 /DUSE_TCP=0 /DUSE_UDP=0
+DEFS_tcp = /DUSE_ZMQ=0 /DUSE_TCP=1 /DUSE_UDP=0
+DEFS_udp = /DUSE_ZMQ=0 /DUSE_TCP=0 /DUSE_UDP=1
+DEFS_all = /DUSE_ZMQ=1 /DUSE_TCP=1 /DUSE_UDP=1
+
+# ============================================================
+# Default
+# ============================================================
+all: dirs static shared variants variants_static
+	-@del /Q *.obj *.exp 2>nul
+
+dirs:
+	@if not exist $(LIBDIR) mkdir $(LIBDIR)
+
+# ============================================================
+# Compile transport objs once
+# (If your transport sources require USE_* macros to compile,
+#  change these three rules to add $(DEFS_all).)
+# ============================================================
+$(OBJ_ZMQ): $(SRC_ZMQ)
+	$(CC) $(CFLAGS) /Fo$@ $(SRC_ZMQ)
+
+$(OBJ_TCP): $(SRC_TCP)
+	$(CC) $(CFLAGS) /Fo$@ $(SRC_TCP)
+
+$(OBJ_UDP): $(SRC_UDP)
+	$(CC) $(CFLAGS) /Fo$@ $(SRC_UDP)
+
+# Base objs compiled with ALL enabled (so codepaths exist)
+$(OBJ_CLIENT): $(SRC_CLIENT)
+	$(CC) $(CFLAGS) /Fo$@ $(SRC_CLIENT)
+
+$(OBJ_JSON): $(SRC_JSON)
+	$(CC) $(CFLAGS) /Fo$@ $(SRC_JSON)
+
+# ============================================================
+# Base STATIC LIBS (self-contained: include transports)
+# ============================================================
+static: $(STATIC_LIB_CLIENT) $(STATIC_LIB_JSON)
+
+$(STATIC_LIB_CLIENT): dirs $(OBJ_CLIENT)
+	$(LIBTOOL) /nologo /OUT:$@ $(OBJ_CLIENT)
+
+$(STATIC_LIB_JSON): dirs $(OBJ_JSON)
+	$(LIBTOOL) /nologo /OUT:$@ $(OBJ_JSON)
+
+# ============================================================
+# Base DLLs (include transports)
+# ============================================================
+shared: $(DLL_CLIENT) $(DLL_JSON)
+
+$(DLL_CLIENT): dirs $(OBJ_CLIENT) $(OBJ_ZMQ) $(OBJ_TCP) $(OBJ_UDP)
+	$(LINK) $(LDFLAGS) /OUT:$@ /IMPLIB:$(IMPLIB_CLIENT) \
+		$(OBJ_CLIENT) $(OBJ_ZMQ) $(OBJ_TCP) $(OBJ_UDP) $(LIB_ZMQ)
+
+$(DLL_JSON): dirs $(OBJ_JSON) $(OBJ_ZMQ) $(OBJ_TCP) $(OBJ_UDP)
+	$(LINK) $(LDFLAGS) /OUT:$@ /IMPLIB:$(IMPLIB_JSON) \
+		$(OBJ_JSON) $(OBJ_ZMQ) $(OBJ_TCP) $(OBJ_UDP) $(LIB_JSON) $(LIB_ZMQ)
+
+# ============================================================
+# Variant objs (client/json compiled per variant)
+# ============================================================
+multiverse_client_zmq.obj: $(SRC_CLIENT)
+	$(CC) $(CFLAGS) $(DEFS_zmq) /Fo$@ $(SRC_CLIENT)
+
+multiverse_client_tcp.obj: $(SRC_CLIENT)
+	$(CC) $(CFLAGS) $(DEFS_tcp) /Fo$@ $(SRC_CLIENT)
+
+multiverse_client_udp.obj: $(SRC_CLIENT)
+	$(CC) $(CFLAGS) $(DEFS_udp) /Fo$@ $(SRC_CLIENT)
+
+multiverse_client_all.obj: $(SRC_CLIENT)
+	$(CC) $(CFLAGS) $(DEFS_all) /Fo$@ $(SRC_CLIENT)
+
+multiverse_client_json_zmq.obj: $(SRC_JSON)
+	$(CC) $(CFLAGS) $(DEFS_zmq) /Fo$@ $(SRC_JSON)
+
+multiverse_client_json_tcp.obj: $(SRC_JSON)
+	$(CC) $(CFLAGS) $(DEFS_tcp) /Fo$@ $(SRC_JSON)
+
+multiverse_client_json_udp.obj: $(SRC_JSON)
+	$(CC) $(CFLAGS) $(DEFS_udp) /Fo$@ $(SRC_JSON)
+
+multiverse_client_json_all.obj: $(SRC_JSON)
+	$(CC) $(CFLAGS) $(DEFS_all) /Fo$@ $(SRC_JSON)
+
+# ============================================================
+# VARIANTS (DLL)
+# ============================================================
+variants: \
+	$(LIBDIR)\multiverse_client_zmq.dll \
+	$(LIBDIR)\multiverse_client_tcp.dll \
+	$(LIBDIR)\multiverse_client_udp.dll \
+	$(LIBDIR)\multiverse_client_all.dll \
+	$(LIBDIR)\multiverse_client_json_zmq.dll \
+	$(LIBDIR)\multiverse_client_json_tcp.dll \
+	$(LIBDIR)\multiverse_client_json_udp.dll \
+	$(LIBDIR)\multiverse_client_json_all.dll
+
+$(LIBDIR)\multiverse_client_zmq.dll: dirs multiverse_client_zmq.obj $(OBJ_ZMQ)
+	@echo Building variant zmq ...
+	$(LINK) $(LDFLAGS) /OUT:$@ /IMPLIB:$(LIBDIR)\multiverse_client_zmq.lib \
+		multiverse_client_zmq.obj $(OBJ_ZMQ) $(LIB_ZMQ)
+
+$(LIBDIR)\multiverse_client_tcp.dll: dirs multiverse_client_tcp.obj $(OBJ_TCP)
+	@echo Building variant tcp ...
+	$(LINK) $(LDFLAGS) /OUT:$@ /IMPLIB:$(LIBDIR)\multiverse_client_tcp.lib \
+		multiverse_client_tcp.obj $(OBJ_TCP)
+
+$(LIBDIR)\multiverse_client_udp.dll: dirs multiverse_client_udp.obj $(OBJ_UDP)
+	@echo Building variant udp ...
+	$(LINK) $(LDFLAGS) /OUT:$@ /IMPLIB:$(LIBDIR)\multiverse_client_udp.lib \
+		multiverse_client_udp.obj $(OBJ_UDP)
+
+$(LIBDIR)\multiverse_client_all.dll: dirs multiverse_client_all.obj $(OBJ_ZMQ) $(OBJ_TCP) $(OBJ_UDP)
+	@echo Building variant all ...
+	$(LINK) $(LDFLAGS) /OUT:$@ /IMPLIB:$(LIBDIR)\multiverse_client_all.lib \
+		multiverse_client_all.obj $(OBJ_ZMQ) $(OBJ_TCP) $(OBJ_UDP) $(LIB_ZMQ)
+
+$(LIBDIR)\multiverse_client_json_zmq.dll: dirs multiverse_client_json_zmq.obj $(OBJ_ZMQ)
+	@echo Building JSON variant zmq ...
+	$(LINK) $(LDFLAGS) /OUT:$@ /IMPLIB:$(LIBDIR)\multiverse_client_json_zmq.lib \
+		multiverse_client_json_zmq.obj $(OBJ_ZMQ) $(LIB_JSON) $(LIB_ZMQ)
+
+$(LIBDIR)\multiverse_client_json_tcp.dll: dirs multiverse_client_json_tcp.obj $(OBJ_TCP)
+	@echo Building JSON variant tcp ...
+	$(LINK) $(LDFLAGS) /OUT:$@ /IMPLIB:$(LIBDIR)\multiverse_client_json_tcp.lib \
+		multiverse_client_json_tcp.obj $(OBJ_TCP) $(LIB_JSON)
+
+$(LIBDIR)\multiverse_client_json_udp.dll: dirs multiverse_client_json_udp.obj $(OBJ_UDP)
+	@echo Building JSON variant udp ...
+	$(LINK) $(LDFLAGS) /OUT:$@ /IMPLIB:$(LIBDIR)\multiverse_client_json_udp.lib \
+		multiverse_client_json_udp.obj $(OBJ_UDP) $(LIB_JSON)
+
+$(LIBDIR)\multiverse_client_json_all.dll: dirs multiverse_client_json_all.obj $(OBJ_ZMQ) $(OBJ_TCP) $(OBJ_UDP)
+	@echo Building JSON variant all ...
+	$(LINK) $(LDFLAGS) /OUT:$@ /IMPLIB:$(LIBDIR)\multiverse_client_json_all.lib \
+		multiverse_client_json_all.obj $(OBJ_ZMQ) $(OBJ_TCP) $(OBJ_UDP) $(LIB_JSON) $(LIB_ZMQ)
+
+# ============================================================
+# VARIANTS (STATIC .lib)
+# ============================================================
+variants_static: \
+	$(LIBDIR)\multiverse_client_zmq.lib \
+	$(LIBDIR)\multiverse_client_tcp.lib \
+	$(LIBDIR)\multiverse_client_udp.lib \
+	$(LIBDIR)\multiverse_client_all.lib \
+	$(LIBDIR)\multiverse_client_json_zmq.lib \
+	$(LIBDIR)\multiverse_client_json_tcp.lib \
+	$(LIBDIR)\multiverse_client_json_udp.lib \
+	$(LIBDIR)\multiverse_client_json_all.lib
+
+$(LIBDIR)\multiverse_client_zmq.lib: dirs multiverse_client_zmq.obj $(OBJ_ZMQ)
+	@echo Building static variant zmq ...
+	$(LIBTOOL) /nologo /OUT:$@ multiverse_client_zmq.obj $(OBJ_ZMQ)
+
+$(LIBDIR)\multiverse_client_tcp.lib: dirs multiverse_client_tcp.obj $(OBJ_TCP)
+	@echo Building static variant tcp ...
+	$(LIBTOOL) /nologo /OUT:$@ multiverse_client_tcp.obj $(OBJ_TCP)
+
+$(LIBDIR)\multiverse_client_udp.lib: dirs multiverse_client_udp.obj $(OBJ_UDP)
+	@echo Building static variant udp ...
+	$(LIBTOOL) /nologo /OUT:$@ multiverse_client_udp.obj $(OBJ_UDP)
+
+$(LIBDIR)\multiverse_client_all.lib: dirs multiverse_client_all.obj $(OBJ_ZMQ) $(OBJ_TCP) $(OBJ_UDP)
+	@echo Building static variant all ...
+	$(LIBTOOL) /nologo /OUT:$@ multiverse_client_all.obj $(OBJ_ZMQ) $(OBJ_TCP) $(OBJ_UDP)
+
+$(LIBDIR)\multiverse_client_json_zmq.lib: dirs multiverse_client_json_zmq.obj $(OBJ_ZMQ)
+	@echo Building static JSON variant zmq ...
+	$(LIBTOOL) /nologo /OUT:$@ multiverse_client_json_zmq.obj $(OBJ_ZMQ)
+
+$(LIBDIR)\multiverse_client_json_tcp.lib: dirs multiverse_client_json_tcp.obj $(OBJ_TCP)
+	@echo Building static JSON variant tcp ...
+	$(LIBTOOL) /nologo /OUT:$@ multiverse_client_json_tcp.obj $(OBJ_TCP)
+
+$(LIBDIR)\multiverse_client_json_udp.lib: dirs multiverse_client_json_udp.obj $(OBJ_UDP)
+	@echo Building static JSON variant udp ...
+	$(LIBTOOL) /nologo /OUT:$@ multiverse_client_json_udp.obj $(OBJ_UDP)
+
+$(LIBDIR)\multiverse_client_json_all.lib: dirs multiverse_client_json_all.obj $(OBJ_ZMQ) $(OBJ_TCP) $(OBJ_UDP)
+	@echo Building static JSON variant all ...
+	$(LIBTOOL) /nologo /OUT:$@ multiverse_client_json_all.obj $(OBJ_ZMQ) $(OBJ_TCP) $(OBJ_UDP)
+
+# ============================================================
+# CLEAN
+# ============================================================
+clean:
+	-@del /Q *.obj *.lib *.dll *.exp 2>nul
+	-@del /Q $(LIBDIR)\multiverse_client_*.dll 2>nul
+	-@del /Q $(LIBDIR)\multiverse_client_*.lib 2>nul
+	@echo Clean complete.

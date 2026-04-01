@@ -1,0 +1,37 @@
+[package]
+name = "multiverse_server_rs"
+version = "0.1.0"
+edition = "2024"
+authors = ["Kien Bui <trungkiena6@gmail.com>"]
+description = "Rust port of MultiverseServer supporting ZMQ, TCP, and UDP transports."
+
+[dependencies]
+tokio = { version = "1.35", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+clap = { version = "4.4", features = ["derive"] }
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+bytes = "1.5"
+zmq = { version = "0.10", optional = true }
+parking_lot = "0.12"
+async-trait = "0.1"
+lazy_static = "1.4"
+hex = "0.4"
+
+[features]
+default = ["use-zmq", "use-tcp", "use-udp"]
+use-zmq = ["zmq"]
+use-tcp = []
+use-udp = []
+
+[[bin]]
+name = "multiverse_server_rust"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

@@ -1,0 +1,68 @@
+image: ubuntu:22.04
+
+pipelines:
+  branches:
+    main:
+      - step:
+          name: Setup Environment and Build
+          caches:
+            - apt
+            - pip
+          script:
+            - set -euo pipefail
+            - export DEBIAN_FRONTEND=noninteractive
+
+            # Base tools + add-apt-repository deps
+            - apt-get update
+            - apt-get install -y --no-install-recommends
+                curl
+                gnupg
+                software-properties-common
+                build-essential
+                cmake
+                clang-format
+            - add-apt-repository -y ppa:deadsnakes/ppa
+            - apt-get update
+
+            # Install multiple Pythons if available (venv is optional; bootstrap pip if missing)
+            - |
+              PY_VERSIONS="3.8 3.9 3.10 3.11 3.12 3.13 3.14"
+              for v in $PY_VERSIONS; do
+                if ! apt-cache show "python${v}" >/dev/null 2>&1; then
+                  echo "Skip Python ${v} (python${v} not available)."
+                  continue
+                fi
+
+                echo "== Python ${v} =="
+
+                apt-get install -y --no-install-recommends "python${v}" "python${v}-dev"
+
+                if apt-cache show "python${v}-venv" >/dev/null 2>&1; then
+                  apt-get install -y --no-install-recommends "python${v}-venv"
+                  python${v} -m ensurepip --upgrade || true
+                else
+                  echo "python${v}-venv not available; will bootstrap pip via get-pip.py"
+                fi
+
+                # Make sure pip exists (works even if ensurepip/venv is missing)
+                if ! python${v} -m pip --version >/dev/null 2>&1; then
+                  curl -sS https://bootstrap.pypa.io/get-pip.py | python${v}
+                fi
+
+                python${v} -m pip install -U pip pybind11
+              done
+
+            # Rust (non-interactive)
+            - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+            - . "$HOME/.cargo/env"
+
+            # Optional cleanup (ok, but doesn't affect apt cache paths below)
+            - rm -rf /var/lib/apt/lists/*
+
+            # Build
+            - bash setup.sh
+
+definitions:
+  caches:
+    apt: /var/lib/apt/lists
+    pip: ~/.cache/pip
